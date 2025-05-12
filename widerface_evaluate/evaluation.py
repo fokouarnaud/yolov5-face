@@ -140,7 +140,7 @@ def norm_score(pred):
         for _, v in k.items():
             if len(v) == 0:
                 continue
-            v[:, -1] = (v[:, -1] - min_score)/diff
+            v[:, -1] = (v[:, -1] - min_score)/diff if diff > 0 else v[:, -1]
 
 
 def image_eval(pred, gt, ignore, iou_thresh):
@@ -199,8 +199,18 @@ def img_pr_info(thresh_num, pred_info, proposal_list, pred_recall):
 def dataset_pr_info(thresh_num, pr_curve, count_face):
     _pr_curve = np.zeros((thresh_num, 2))
     for i in range(thresh_num):
-        _pr_curve[i, 0] = pr_curve[i, 1] / pr_curve[i, 0]
-        _pr_curve[i, 1] = pr_curve[i, 1] / count_face
+        # Éviter la division par zéro
+        if pr_curve[i, 0] > 0:
+            _pr_curve[i, 0] = pr_curve[i, 1] / pr_curve[i, 0]
+        else:
+            _pr_curve[i, 0] = 0
+        
+        # Éviter la division par zéro
+        if count_face > 0:
+            _pr_curve[i, 1] = pr_curve[i, 1] / count_face
+        else:
+            _pr_curve[i, 1] = 0
+            
     return _pr_curve
 
 
@@ -244,28 +254,45 @@ def evaluation(pred, gt_path, iou_thresh=0.5):
             pbar.set_description('Processing {}'.format(settings[setting_id]))
             event_name = str(event_list[i][0][0])
             img_list = file_list[i][0]
+            
+            # Gérer le cas où l'event_name n'est pas dans pred
+            if event_name not in pred:
+                print(f"Warning: Event {event_name} not found in predictions")
+                continue
+                
             pred_list = pred[event_name]
             sub_gt_list = gt_list[i][0]
             # img_pr_info_list = np.zeros((len(img_list), thresh_num, 2))
             gt_bbx_list = facebox_list[i][0]
 
             for j in range(len(img_list)):
-                pred_info = pred_list[str(img_list[j][0][0])]
+                img_name = str(img_list[j][0][0])
+                
+                # Vérifier si l'image est dans les prédictions
+                if img_name not in pred_list:
+                    continue
+                    
+                pred_info = pred_list[img_name]
 
+                # Vérifier si les gt_boxes sont disponibles
+                if len(gt_bbx_list) <= j:
+                    continue
+                    
                 gt_boxes = gt_bbx_list[j][0].astype('float')
                 keep_index = sub_gt_list[j][0]
                 count_face += len(keep_index)
 
                 if len(gt_boxes) == 0 or len(pred_info) == 0:
                     continue
+                    
                 ignore = np.zeros(gt_boxes.shape[0])
                 if len(keep_index) != 0:
                     ignore[keep_index-1] = 1
+                    
                 pred_recall, proposal_list = image_eval(pred_info, gt_boxes, ignore, iou_thresh)
-
                 _img_pr_info = img_pr_info(thresh_num, pred_info, proposal_list, pred_recall)
-
                 pr_curve += _img_pr_info
+                
         pr_curve = dataset_pr_info(thresh_num, pr_curve, count_face)
 
         propose = pr_curve[:, 0]
@@ -289,15 +316,3 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     evaluation(args.pred, args.gt)
-
-
-
-
-
-
-
-
-
-
-
-

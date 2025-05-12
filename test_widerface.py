@@ -86,7 +86,22 @@ def detect(model, img0):
         img = img.unsqueeze(0)
 
     # Inference
-    pred = model(img, augment=opt.augment)[0]
+    output = model(img, augment=opt.augment)
+    
+    # Adaptation pour PyTorch 2.6+ : Gestion des différents formats de sortie possibles
+    if isinstance(output, tuple):
+        # Si la sortie est un tuple, le premier élément contient généralement les prédictions
+        pred = output[0]
+    elif isinstance(output, list):
+        # Si la sortie est une liste
+        pred = output[0]  
+    elif isinstance(output, torch.Tensor):
+        # Si la sortie est directement un tensor
+        pred = output
+    else:
+        # Fallback si la structure est différente
+        pred = output
+    
     # Apply NMS
     pred = non_max_suppression_face(pred, opt.conf_thres, opt.iou_thres)[0]
     gn = torch.tensor(img0.shape)[[1, 0, 1, 0]].to(device)  # normalization gain whwh
