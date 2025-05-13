@@ -195,7 +195,6 @@ def img_pr_info(thresh_num, pred_info, proposal_list, pred_recall):
             pr_info[t, 1] = pred_recall[r_index]
     return pr_info
 
-
 def dataset_pr_info(thresh_num, pr_curve, count_face):
     _pr_curve = np.zeros((thresh_num, 2))
     for i in range(thresh_num):
@@ -212,7 +211,6 @@ def dataset_pr_info(thresh_num, pr_curve, count_face):
             _pr_curve[i, 1] = 0
             
     return _pr_curve
-
 
 def voc_ap(rec, prec):
 
