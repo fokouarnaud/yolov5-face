@@ -6,6 +6,7 @@ from pathlib import Path
 import os
 import cv2
 import torch
+import shutil
 import torch.backends.cudnn as cudnn
 from numpy import random
 import numpy as np
@@ -126,10 +127,14 @@ def detect(model, img0):
 
 
 if __name__ == '__main__':
+    # Créer un dossier de debug
+    debug_dir = './debug_output'
+    os.makedirs(debug_dir, exist_ok=True)
+    
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', nargs='+', type=str, default='runs/train/exp5/weights/last.pt', help='model.pt path(s)')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.02, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.01, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--device', default='0', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
@@ -150,36 +155,117 @@ if __name__ == '__main__':
     with open(opt.folder_pict, 'r') as f:
         lines = f.readlines()
         for line in lines:
-            line = line.strip().split('/')
+            line = line.strip().replace('\\', '/').split('/')
             pict_folder[line[-1]] = line[-2]
+    
+    # Debug: afficher quelques entrées du dictionnaire pict_folder
+    print(f"Nombre d'images dans pict_folder: {len(pict_folder)}")
+    sample_keys = list(pict_folder.keys())[:5]
+    print(f"Exemples d'entrées dans pict_folder:")
+    for key in sample_keys:
+        print(f"  {key} -> {pict_folder[key]}")
 
     # Load model
     device = select_device(opt.device)
     model = attempt_load(opt.weights, map_location=device)  # load FP32 model
+    print(f"Modèle chargé: {opt.weights}")
     with torch.no_grad():
         # testing dataset
         testset_folder = opt.dataset_folder
 
-        for image_path in tqdm(glob.glob(os.path.join(testset_folder, '*'))):
-            if image_path.endswith('.txt'):
-                continue
-            img0 = cv2.imread(image_path)  # BGR
-            if img0 is None:
-                print(f'ignore : {image_path}')
-                continue
-            boxes = detect(model, img0)
-            # --------------------------------------------------------------------
-            image_name = os.path.basename(image_path)
-            txt_name = os.path.splitext(image_name)[0] + ".txt"
-            save_name = os.path.join(opt.save_folder, pict_folder[image_name], txt_name)
-            dirname = os.path.dirname(save_name)
-            if not os.path.isdir(dirname):
-                os.makedirs(dirname)
-            with open(save_name, "w") as fd:
-                file_name = os.path.basename(save_name)[:-4] + "\n"            
-                bboxs_num = str(len(boxes)) + "\n"
-                fd.write(file_name)
-                fd.write(bboxs_num)
-                for box in boxes:
-                    fd.write('%d %d %d %d %.03f' % (box[0], box[1], box[2], box[3], box[4] if box[4] <= 1 else 1) + '\n')
+        # Créer un fichier de log pour les détections
+        with open('./debug_output/detection_log.txt', 'w') as log_file:
+            log_file.write(f"Dataset folder: {testset_folder}\n")
+            log_file.write(f"Save folder: {opt.save_folder}\n")
+            log_file.write(f"Nombre d'événements attendus: {len(set(pict_folder.values()))}\n")
+            log_file.write(f"Événements attendus: {set(pict_folder.values())}\n\n")
+            
+            image_count = 0
+            detection_count = 0
+            
+            # Créer les dossiers pour tous les événements à l'avance
+            for event_name in set(pict_folder.values()):
+                event_dir = os.path.join(opt.save_folder, event_name)
+                os.makedirs(event_dir, exist_ok=True)
+                
+            for image_path in tqdm(glob.glob(os.path.join(testset_folder, '*', '*'))):
+                if image_path.endswith('.txt'):
+                    continue
+                image_count += 1
+                img0 = cv2.imread(image_path)  # BGR
+                if img0 is None:
+                    log_file.write(f'ignore : {image_path}\n')
+                    print(f'ignore : {image_path}')
+                    continue
+                    
+                # Sauvegarder quelques images originales pour débogage
+                if image_count < 10:
+                    debug_img_path = os.path.join(debug_dir, f"original_{image_count}.jpg")
+                    cv2.imwrite(debug_img_path, img0)
+                    
+                boxes = detect(model, img0)
+                detection_count += len(boxes)
+                
+                # Log pour débogage
+                image_name = os.path.basename(image_path)
+                log_file.write(f"Image: {image_path} - Détections: {len(boxes)}\n")
+                # --------------------------------------------------------------------
+                image_name = os.path.basename(image_path)
+                
+                # Vérifier si l'image est dans le dictionnaire pict_folder
+                if image_name not in pict_folder:
+                    log_file.write(f"ERREUR: Image {image_name} non trouvée dans pict_folder!\n")
+                    parts = image_path.replace('\\', '/').split('/')
+                    if len(parts) >= 2:
+                        event_name = parts[-2]  # Le dossier parent de l'image est l'événement
+                        log_file.write(f"  Utilisation de l'événement extrait du chemin: {event_name}\n")
+                        pict_folder[image_name] = event_name
+                    else:
+                        log_file.write(f"  Impossible de déterminer l'événement pour {image_name}\n")
+                        continue
+                
+                # Sauvegarder une image avec détections pour débogage
+                if image_count < 10:
+                    debug_img = img0.copy()
+                    for box in boxes:
+                        cv2.rectangle(debug_img, (box[0], box[1]), (box[0] + box[2], box[1] + box[3]), (0, 255, 0), 2)
+                    debug_img_path = os.path.join(debug_dir, f"detection_{image_count}.jpg")
+                    cv2.imwrite(debug_img_path, debug_img)
+                
+                txt_name = os.path.splitext(image_name)[0] + ".txt"
+                save_name = os.path.join(opt.save_folder, pict_folder[image_name], txt_name)
+                dirname = os.path.dirname(save_name)
+                if not os.path.isdir(dirname):
+                    os.makedirs(dirname)
+                    log_file.write(f"Création du dossier: {dirname}\n")
+                
+                with open(save_name, "w") as fd:
+                    file_name = os.path.basename(save_name)[:-4] + "\n"            
+                    bboxs_num = str(len(boxes)) + "\n"
+                    fd.write(file_name)
+                    fd.write(bboxs_num)
+                    for box in boxes:
+                        fd.write('%d %d %d %d %.03f' % (box[0], box[1], box[2], box[3], box[4] if box[4] <= 1 else 1) + '\n')
+                        
+                # Log les 5 premières sauvegardes pour vérifier le format
+                if image_count < 5:
+                    log_file.write(f"  Sauvegarde dans: {save_name}\n")
+            log_file.write(f"\nStatistiques finales:\n")
+            log_file.write(f"  Total d'images traitées: {image_count}\n")
+            log_file.write(f"  Total de détections: {detection_count}\n")
+            
+            # Liste les fichiers dans le répertoire de sortie pour vérification
+            log_file.write(f"\nContenu du répertoire de sortie {opt.save_folder}:\n")
+            events_created = os.listdir(opt.save_folder)
+            log_file.write(f"  Événements créés ({len(events_created)}): {events_created}\n")
+            
+            for event in events_created:
+                event_path = os.path.join(opt.save_folder, event)
+                if os.path.isdir(event_path):
+                    files = os.listdir(event_path)
+                    log_file.write(f"  Nombre de fichiers dans {event}: {len(files)}\n")
+                    
+            # Copier le journal de débogage dans le dossier d'évaluation pour référence
+            shutil.copy('./debug_output/detection_log.txt', os.path.join(opt.save_folder, 'detection_log.txt'))
+            
         print('done.')

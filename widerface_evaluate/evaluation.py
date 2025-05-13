@@ -13,6 +13,18 @@ import numpy as np
 from scipy.io import loadmat
 from bbox import bbox_overlaps
 from IPython import embed
+import glob
+import logging
+
+# Configurer le logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("evaluation_debug.log"),
+        logging.StreamHandler()
+    ]
+)
 
 
 def get_gt_boxes(gt_dir):
@@ -233,10 +245,62 @@ def voc_ap(rec, prec):
 
 
 def evaluation(pred, gt_path, iou_thresh=0.5):
+    # Vérifier que le dossier de prédictions existe et contient des fichiers
+    logging.info(f"Vérification du dossier de prédictions: {pred}")
+    if not os.path.exists(pred):
+        logging.error(f"Le dossier de prédictions n'existe pas: {pred}")
+        return
+    
+    events_dirs = os.listdir(pred)
+    logging.info(f"Événements trouvés dans les prédictions ({len(events_dirs)}): {events_dirs}")
+    
+    # Vérifier le contenu de chaque dossier d'événement
+    total_pred_files = 0
+    for event in events_dirs:
+        event_path = os.path.join(pred, event)
+        if os.path.isdir(event_path):
+            files = glob.glob(os.path.join(event_path, '*.txt'))
+            logging.info(f"Événement '{event}': {len(files)} fichiers de prédiction")
+            total_pred_files += len(files)
+    
+    logging.info(f"Total des fichiers de prédiction: {total_pred_files}")
+    
+    # Vérifier que le dossier de vérité terrain existe
+    logging.info(f"Vérification du dossier de vérité terrain: {gt_path}")
+    if not os.path.exists(gt_path):
+        logging.error(f"Le dossier de vérité terrain n'existe pas: {gt_path}")
+        return
+        
+    # Fichiers attendus dans le dossier de vérité terrain
+    expected_files = ['wider_face_val.mat', 'wider_hard_val.mat', 'wider_medium_val.mat', 'wider_easy_val.mat']
+    for file in expected_files:
+        file_path = os.path.join(gt_path, file)
+        if not os.path.exists(file_path):
+            logging.error(f"Fichier de vérité terrain manquant: {file_path}")
+            return
+    
+    # Continuer avec l'évaluation normale
     pred = get_preds(pred)
+    logging.info(f"Nombre d'événements dans les prédictions: {len(pred)}")
+    
     norm_score(pred)
     facebox_list, event_list, file_list, hard_gt_list, medium_gt_list, easy_gt_list = get_gt_boxes(gt_path)
+    
     event_num = len(event_list)
+    logging.info(f"Nombre d'événements dans la vérité terrain: {event_num}")
+    
+    # Afficher les événements dans la vérité terrain et les prédictions pour débogage
+    gt_events = [str(event[0][0]) for event in event_list]
+    pred_events = list(pred.keys())
+    
+    logging.info(f"Événements dans la vérité terrain: {gt_events}")
+    logging.info(f"Événements dans les prédictions: {pred_events}")
+    
+    # Trouver les événements manquants
+    missing_events = set(gt_events) - set(pred_events)
+    if missing_events:
+        logging.warning(f"Événements manquants dans les prédictions: {missing_events}")
+    
     thresh_num = 1000
     settings = ['easy', 'medium', 'hard']
     setting_gts = [easy_gt_list, medium_gt_list, hard_gt_list]
@@ -255,8 +319,19 @@ def evaluation(pred, gt_path, iou_thresh=0.5):
             
             # Gérer le cas où l'event_name n'est pas dans pred
             if event_name not in pred:
-                print(f"Warning: Event {event_name} not found in predictions")
-                continue
+                logging.warning(f"Event {event_name} not found in predictions")
+                # Essayons de trouver un événement correspondant avec des variantes de nom
+                # Certains noms peuvent avoir des différences mineures (espaces, majuscules, etc.)
+                alternative_found = False
+                for pred_event in pred.keys():
+                    if pred_event.lower().replace('_', '') == event_name.lower().replace('_', ''):
+                        logging.info(f"Alternative trouvée pour {event_name}: {pred_event}")
+                        event_name = pred_event
+                        alternative_found = True
+                        break
+                        
+                if not alternative_found:
+                    continue
                 
             pred_list = pred[event_name]
             sub_gt_list = gt_list[i][0]
@@ -268,12 +343,14 @@ def evaluation(pred, gt_path, iou_thresh=0.5):
                 
                 # Vérifier si l'image est dans les prédictions
                 if img_name not in pred_list:
+                    logging.warning(f"Image {img_name} de l'événement {event_name} non trouvée dans les prédictions")
                     continue
                     
                 pred_info = pred_list[img_name]
 
                 # Vérifier si les gt_boxes sont disponibles
                 if len(gt_bbx_list) <= j:
+                    logging.warning(f"Pas de gt_boxes pour l'image {img_name} à l'index {j}")
                     continue
                     
                 gt_boxes = gt_bbx_list[j][0].astype('float')
@@ -311,6 +388,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('-p', '--pred', default="./widerface_txt/")
     parser.add_argument('-g', '--gt', default='./ground_truth/')
+    parser.add_argument('-t', '--iou-thresh', type=float, default=0.5, help='IoU threshold for evaluation')
 
     args = parser.parse_args()
-    evaluation(args.pred, args.gt)
+    logging.info(f"Début de l'évaluation avec les paramètres: pred={args.pred}, gt={args.gt}, iou_thresh={args.iou_thresh}")
+    evaluation(args.pred, args.gt, args.iou_thresh)
