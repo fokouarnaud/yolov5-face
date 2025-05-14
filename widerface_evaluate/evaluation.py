@@ -114,7 +114,8 @@ def read_pred_file(filepath):
 
 
 def get_preds(pred_dir):
-    events = os.listdir(pred_dir)
+    # Utiliser seulement les dossiers, ignorer les fichiers
+    events = [d for d in os.listdir(pred_dir) if os.path.isdir(os.path.join(pred_dir, d))]
     boxes = dict()
     pbar = tqdm.tqdm(events)
 
