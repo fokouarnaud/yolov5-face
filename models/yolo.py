@@ -271,6 +271,17 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+    
+    # PyTorch 2+ compatibility function
+    def normalize_args(args):
+        if isinstance(args, list):
+            return [normalize_args(a) for a in args]
+        elif isinstance(args, tuple):
+            return tuple(normalize_args(list(args)))
+        elif isinstance(args, dict):
+            return {k: normalize_args(v) for k, v in args.items()}
+        else:
+            return args
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
@@ -278,6 +289,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         for j, a in enumerate(args):
             try:
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
+                # Normaliser les arguments pour PyTorch 2+
+                args[j] = normalize_args(args[j])
             except:
                 pass
 
