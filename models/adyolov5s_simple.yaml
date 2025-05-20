@@ -42,7 +42,7 @@ backbone:
    
    [-1, 1, Conv, [128, 1, 1]],                  # 21
    [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 22 (GD-P3/8 -> P2/4)
-   [1, 1, Conv, [128, 1, 1]],                   # 23 (P2/4-reduced)
+   [1, 1, Conv, [64, 1, 1]],                   # 23 (P2/4-reduced)
    # Gather P2 features
    [[23, 22], 1, Concat, [1]],                  # 24 (Gather P2 features)
    [-1, 1, Conv, [128, 1, 1]],                  # 25 (Conv after Concat)
