@@ -11,7 +11,7 @@ import torch.nn as nn
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 logger = logging.getLogger(__name__)
 
-from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, ShuffleV2Block, Concat, NMS, autoShape, StemBlock, BlazeBlock, DoubleBlazeBlock
+from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, ShuffleV2Block, Concat, NMS, autoShape, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer
 from models.experimental import MixConv2d, CrossConv
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
@@ -32,7 +32,7 @@ class Detect(nn.Module):
         super(Detect, self).__init__()
         self.nc = nc  # number of classes
         #self.no = nc + 5  # number of outputs per anchor
-        self.no = nc + 5 + 10  # number of outputs per anchor
+        self.no = nc + 5 + 10  # number of outputs per anchor (5 pour bbox + conf, 10 pour les 5 landmarks)
 
         self.nl = len(anchors)  # number of detection layers (3 par défaut, 4 pour ADYOLOv5-Face)
         self.na = len(anchors[0]) // 2  # number of anchors
@@ -44,6 +44,12 @@ class Detect(nn.Module):
         
         # Flag pour savoir s'il s'agit du modèle ADYOLOv5 avec 4 têtes
         self.is_adyolo = self.nl == 4  # True si 4 couches de détection (ADYOLOv5-Face)
+        
+        # Strides pour chaque niveau de caractéristiques dans ADYOLOv5 (P2/4, P3/8, P4/16, P5/32)
+        if self.is_adyolo:
+            # Strides pour les 4 niveaux de caractéristiques dans l'ordre P2/4, P3/8, P4/16, P5/32
+            # Ces valeurs seront mises à jour lors de l'initialisation du modèle
+            self.adyolo_strides = [4, 8, 16, 32]
 
     def forward(self, x):
         # x = x.copy()  # for profiling
@@ -276,7 +282,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock]:
+        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer]:
             c1, c2 = ch[f], args[0]
 
             # Normal
