@@ -443,6 +443,30 @@ class Detections:
         return x
 
 
+class GatherLayer(nn.Module):
+    """Couche de rassemblement pour le mécanisme GD (Gather-and-Distribute)"""
+    def __init__(self, channels):
+        super(GatherLayer, self).__init__()
+        self.cv1 = Conv(channels, channels, 1, 1)
+        self.cv2 = Conv(2 * channels, channels, 1, 1)
+        
+    def forward(self, x):
+        # x[0] est la caractéristique de la couche actuelle
+        # x[1] est la caractéristique de la couche précédente (upsampled)
+        return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))
+
+class DistributeLayer(nn.Module):
+    """Couche de distribution pour le mécanisme GD (Gather-and-Distribute)"""
+    def __init__(self, channels):
+        super(DistributeLayer, self).__init__()
+        self.cv1 = Conv(channels, channels, 1, 1)
+        self.cv2 = Conv(2 * channels, channels, 1, 1)
+        
+    def forward(self, x):
+        # x[0] est la caractéristique de la couche actuelle (convolved)
+        # x[1] est la caractéristique de la couche cible
+        return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))
+
 class Classify(nn.Module):
     # Classification head, i.e. x(b,c1,20,20) to x(b,c2)
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1):  # ch_in, ch_out, kernel, stride, padding, groups

@@ -34,13 +34,16 @@ class Detect(nn.Module):
         #self.no = nc + 5  # number of outputs per anchor
         self.no = nc + 5 + 10  # number of outputs per anchor
 
-        self.nl = len(anchors)  # number of detection layers
+        self.nl = len(anchors)  # number of detection layers (3 par défaut, 4 pour ADYOLOv5-Face)
         self.na = len(anchors[0]) // 2  # number of anchors
         self.grid = [torch.zeros(1)] * self.nl  # init grid
         a = torch.tensor(anchors).float().view(self.nl, -1, 2)
         self.register_buffer('anchors', a)  # shape(nl,na,2)
         self.register_buffer('anchor_grid', a.clone().view(self.nl, 1, -1, 1, 1, 2))  # shape(nl,1,na,1,1,2)
         self.m = nn.ModuleList(nn.Conv2d(x, self.no * self.na, 1) for x in ch)  # output conv
+        
+        # Flag pour savoir s'il s'agit du modèle ADYOLOv5 avec 4 têtes
+        self.is_adyolo = self.nl == 4  # True si 4 couches de détection (ADYOLOv5-Face)
 
     def forward(self, x):
         # x = x.copy()  # for profiling
