@@ -32,7 +32,16 @@ def channel_shuffle(x, groups):
 
 def DWConv(c1, c2, k=1, s=1, act=True):
     # Depthwise convolution
-    return Conv(c1, c2, k, s, g=math.gcd(c1, c2), act=act)
+    # Assurez-vous que c1 et c2 sont des entiers pour le calcul du gcd
+    if isinstance(c1, (list, tuple)):
+        c1 = c1[0] if len(c1) > 0 else c1
+    if isinstance(c2, (list, tuple)):
+        c2 = c2[0] if len(c2) > 0 else c2
+    c1, c2 = int(c1), int(c2)
+    g = math.gcd(c1, c2)
+    # Garantir que g est au moins 1
+    g = max(1, g)
+    return Conv(c1, c2, k, s, g=g, act=act)
 
 class Conv(nn.Module):
     # Standard convolution
@@ -48,6 +57,15 @@ class Conv(nn.Module):
             k = k[0] if len(k) > 0 else k
         if isinstance(s, (list, tuple)):
             s = s[0] if len(s) > 0 else s
+        if isinstance(g, (list, tuple)):
+            g = g[0] if len(g) > 0 else g
+            
+        # Convertir les arguments en entiers et s'assurer qu'ils sont positifs
+        c1, c2 = int(c1), int(c2)
+        k = int(k) if isinstance(k, (int, float)) else k
+        s = int(s) if isinstance(s, (int, float)) else s
+        g = int(g) if isinstance(g, (int, float)) else 1
+        g = max(1, g)  # groups doit être au moins 1
             
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
@@ -83,6 +101,9 @@ class Bottleneck(nn.Module):
         super(Bottleneck, self).__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1)
+        # Assurez-vous que g est un entier positif pour PyTorch 2+
+        g = int(g) if isinstance(g, (int, float)) else 1
+        g = max(1, g)  # g doit être au moins 1
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.add = shortcut and c1 == c2
 
@@ -458,10 +479,19 @@ class GatherLayer(nn.Module):
     """Couche de rassemblement pour le mécanisme GD (Gather-and-Distribute)"""
     def __init__(self, channels):
         super(GatherLayer, self).__init__()
+        # S'assurer que channels est un entier
+        if isinstance(channels, (list, tuple)):
+            channels = channels[0] if len(channels) > 0 else channels
+        channels = int(channels)
+            
         self.cv1 = Conv(channels, channels, 1, 1)
         self.cv2 = Conv(2 * channels, channels, 1, 1)
         
     def forward(self, x):
+        # Gérer le cas où x est une liste ou un tuple
+        if not isinstance(x, (list, tuple)) or len(x) < 2:
+            raise ValueError("GatherLayer s'attend à recevoir une liste ou tuple avec au moins 2 éléments")
+            
         # x[0] est la caractéristique de la couche actuelle
         # x[1] est la caractéristique de la couche précédente (upsampled)
         return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))
@@ -470,10 +500,19 @@ class DistributeLayer(nn.Module):
     """Couche de distribution pour le mécanisme GD (Gather-and-Distribute)"""
     def __init__(self, channels):
         super(DistributeLayer, self).__init__()
+        # S'assurer que channels est un entier
+        if isinstance(channels, (list, tuple)):
+            channels = channels[0] if len(channels) > 0 else channels
+        channels = int(channels)
+            
         self.cv1 = Conv(channels, channels, 1, 1)
         self.cv2 = Conv(2 * channels, channels, 1, 1)
         
     def forward(self, x):
+        # Gérer le cas où x est une liste ou un tuple
+        if not isinstance(x, (list, tuple)) or len(x) < 2:
+            raise ValueError("DistributeLayer s'attend à recevoir une liste ou tuple avec au moins 2 éléments")
+            
         # x[0] est la caractéristique de la couche actuelle (convolved)
         # x[1] est la caractéristique de la couche cible
         return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))

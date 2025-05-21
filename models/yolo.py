@@ -280,6 +280,11 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             return tuple(normalize_args(list(args)))
         elif isinstance(args, dict):
             return {k: normalize_args(v) for k, v in args.items()}
+        elif isinstance(args, (int, float)):
+            # S'assurer que les valeurs numériques pour les paramètres comme 'groups' sont des entiers positifs
+            if args < 0:
+                return 1  # Valeur par défaut pour les paramètres qui doivent être positifs
+            return int(args) if isinstance(args, float) else args
         else:
             return args
 
