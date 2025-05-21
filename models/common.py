@@ -681,6 +681,65 @@ class DistributeLayer(nn.Module):
         # x2 est la caractéristique de la couche cible
         return self.cv2(torch.cat([self.cv1(x1), x2], 1))
 
+class GDFusion(nn.Module):
+    """Gather-and-Distribute Fusion module pour ADYOLOv5-Face"""
+    def __init__(self, c1, c2, gd_type='low'):
+        super(GDFusion, self).__init__()
+        self.gd_type = gd_type
+        
+        # Normalisation des arguments pour PyTorch 2.6+
+        if isinstance(c1, list) and len(c1) == 2:
+            c1 = tuple(c1)
+            
+        if isinstance(c1, (list, tuple)):
+            c1_in = c1[0]  # première entrée
+        else:
+            c1_in = c1
+        
+        # Assurer que c2 est un entier
+        if isinstance(c2, (list, tuple)):
+            c2 = c2[0] if len(c2) > 0 else c2
+        self.c2 = int(c2)
+            
+        # Pour les GD de type bas niveau (Low-GD)
+        if gd_type == 'low':
+            self.cv1 = Conv(c1_in, self.c2, 1, 1)  # réduction de dimension
+            self.fusion = Conv(self.c2, self.c2, 3, 1, p=1)  # fusion avec conv 3x3
+            
+        # Pour les GD de type haut niveau (High-GD)
+        else:  # gd_type == 'high'
+            self.cv1 = Conv(c1_in, self.c2, 1, 1)
+            self.attention = nn.Sequential(
+                Conv(self.c2, self.c2, 3, 1, p=1),
+                nn.Sigmoid()
+            )
+            self.embed = Conv(self.c2, self.c2, 1, 1)
+            self.fusion = Conv(self.c2, self.c2, 3, 1, p=1)
+    
+    def forward(self, x):
+        # Normalisation des entrées pour gérer les listes/tuples
+        if isinstance(x, (list, tuple)):
+            # GD fusion
+            feat1 = x[0]  # Features cibles
+            feat2 = x[1]  # Features contextuelles
+            
+            # Adaptation des dimensions et fusion
+            feat1 = self.cv1(feat1)
+            
+            if self.gd_type == 'low':
+                # Simple fusion additive pour Low-GD
+                out = feat1 + feat2
+            else:
+                # Fusion avec attention pour High-GD
+                attn = self.attention(feat1)
+                embed = self.embed(feat1)
+                out = feat2 * attn + embed
+            
+            return self.fusion(out)
+        else:
+            # Un seul tenseur en entrée - cas improbable mais géré
+            return self.cv1(x)
+
 class Classify(nn.Module):
     # Classification head, i.e. x(b,c1,20,20) to x(b,c2)
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1):  # ch_in, ch_out, kernel, stride, padding, groups

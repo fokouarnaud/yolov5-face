@@ -309,11 +309,19 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     
     # PyTorch 2+ compatibility function
     def normalize_args(args):
+        """Normalise tous les types d'arguments pour assurer la compatibilité avec PyTorch 2.6+"""
         if isinstance(args, list):
-            return [normalize_args(a) for a in args]
+            # Convertir les listes en tuples car PyTorch 2.6+ préfère les tuples pour certains arguments
+            if len(args) > 0:
+                return [normalize_args(a) for a in args]
+            return args
         elif isinstance(args, tuple):
-            return tuple(normalize_args(list(args)))
+            # Normaliser chaque élément du tuple
+            if len(args) > 0:
+                return tuple(normalize_args(list(args)))
+            return args
         elif isinstance(args, dict):
+            # Normaliser les clés et valeurs du dictionnaire
             return {k: normalize_args(v) for k, v in args.items()}
         elif isinstance(args, (int, float)):
             # S'assurer que les valeurs numériques pour les paramètres comme 'groups' sont des entiers positifs
@@ -321,6 +329,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 return 1  # Valeur par défaut pour les paramètres qui doivent être positifs
             return int(args) if isinstance(args, float) else args
         else:
+            # Laisser les autres types inchangés
             return args
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out

@@ -1,8 +1,7 @@
-<<<<<<< HEAD
 # Hyperparameters for ADYOLOv5-Face training
 # Optimisé pour la détection des petits visages
 lr0: 0.01  # taux d'apprentissage initial
-lrf: 0.2  # final OneCycleLR learning rate (lr0 * lrf)
+lrf: 0.1  # final OneCycleLR learning rate (lr0 * lrf)
 momentum: 0.937  # SGD momentum/Adam beta1
 weight_decay: 0.0005  # optimizer weight decay
 warmup_epochs: 3.0  # warmup epochs
@@ -27,36 +26,6 @@ shear: 0.0  # augmentation image shear (+/- deg)
 perspective: 0.0  # augmentation image perspective (+/- fraction), range 0-0.001
 flipud: 0.0  # augmentation image flips up-down (probability)
 fliplr: 0.5  # augmentation image flips left-right (probability)
-mosaic: 0.5  # augmentation image mosaics (probability)
-mixup: 0.0  # augmentation image mixup (probability)
-=======
-# Hyperparamètres optimisés pour ADYOLOv5-Face
-lr0: 0.01  # taux d'apprentissage initial
-lrf: 0.1  # facteur final du OneCycleLR (lr0 * lrf)
-momentum: 0.937  # momentum SGD
-weight_decay: 0.0005  # décroissance des poids
-warmup_epochs: 3.0  # epochs de warmup
-warmup_momentum: 0.8  # warmup momentum
-warmup_bias_lr: 0.1  # warmup bias lr
-box: 0.05  # perte de la boîte de délimitation
-cls: 0.5  # perte de classification
-cls_pw: 1.0  # pondération d'exponentielle positive de la perte de classification
-obj: 1.0  # perte d'objet
-obj_pw: 1.0  # pondération positive de la perte d'objet
-iou_t: 0.20  # seuil IoU de l'entraîneur
-anchor_t: 4.0  # ancre-vérité IoU seuil
-fl_gamma: 0.0  # perte focale gamma (efficacité, 0 signifie pas de FL)
-hsv_h: 0.015  # augmentation HSV-Hue
-hsv_s: 0.7  # augmentation HSV-Saturation
-hsv_v: 0.4  # augmentation HSV-Value
-degrees: 0.0  # augmentation de rotation de l'image (+/- deg)
-translate: 0.1  # augmentation de la translation de l'image (+/- fraction)
-scale: 0.5  # augmentation de l'échelle de l'image (+/- gain)
-shear: 0.0  # augmentation du cisaillement de l'image (+/- deg)
-perspective: 0.0  # augmentation de la perspective de l'image (+/- fraction), le 0 ne le désactive pas
-flipud: 0.0  # probabilité d'inclusion de l'augmentation de flipud de l'image
-fliplr: 0.5  # probabilité d'inclusion de l'augmentation de fliplr de l'image
-mosaic: 1.0  # probabilité d'inclusion de l'augmentation de mosaïque de l'image
-mixup: 0.1  # probabilité de l'augmentation de mixup de l'image
+mosaic: 0.8  # augmentation image mosaics (probability)
+mixup: 0.1  # augmentation image mixup (probability)
 copy_paste: 0.0  # probabilité de l'augmentation de copier-coller de l'image
->>>>>>> refactory2

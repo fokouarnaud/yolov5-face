@@ -1,3 +1,11 @@
+# Module GD (Gather-and-Distribute) pour ADYOLOv5-Face
+# Implémentation des mécanismes de Gather-and-Distribute pour les petits visages
+
+import torch
+import torch.nn as nn
+from models.common import Conv, DWConv
+
+# Les implémentations existantes sont conservées
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
