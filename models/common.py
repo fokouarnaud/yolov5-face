@@ -1,4 +1,42 @@
-# This file contains modules common to various models
+class DynamicConv2d(nn.Module):
+    """Conv2d avec adaptation dynamique des dimensions d'entrée"""
+    def __init__(self, c1, c2, k=1, s=1, p=None, bias=True):
+        super(DynamicConv2d, self).__init__()
+        
+        # PyTorch 2+ compatibility: handle tuple/list arguments
+        if isinstance(c1, (list, tuple)):
+            c1 = c1[0] if len(c1) > 0 else c1
+        if isinstance(c2, (list, tuple)):
+            c2 = c2[0] if len(c2) > 0 else c2
+        if isinstance(k, (list, tuple)):
+            k = k[0] if len(k) > 0 else k
+        if isinstance(s, (list, tuple)):
+            s = s[0] if len(s) > 0 else s
+            
+        # Convertir les arguments en entiers
+        self.c1_expected = int(c1) if not isinstance(c1, str) else 0  # Attendu
+        self.c2 = int(c2) if not isinstance(c2, str) else 0
+        self.k = int(k) if isinstance(k, (int, float)) else k
+        self.s = int(s) if isinstance(s, (int, float)) else s
+        self.p = p if p is not None else autopad(self.k)
+        self.bias = bias
+        
+        # Créer les couches dynamiquement dans forward
+        self.conv = None
+            
+    def _create_layer(self, c1_actual):
+        # Créer la couche avec les dimensions réelles
+        self.conv = nn.Conv2d(c1_actual, self.c2, self.k, self.s, self.p, bias=self.bias)
+
+    def forward(self, x):
+        # Détecter les dimensions d'entrée réelles
+        c1_actual = x.shape[1]
+        
+        # Initialiser ou réinitialiser la couche si nécessaire
+        if self.conv is None or self.conv.in_channels != c1_actual:
+            self._create_layer(c1_actual)
+            
+        return self.conv(x)# This file contains modules common to various models
 
 import math
 
