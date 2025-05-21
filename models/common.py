@@ -132,14 +132,40 @@ class BottleneckCSP(nn.Module):
 class C3(nn.Module):
     # CSP Bottleneck with 3 convolutions
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
-        super(C3, self).__init__()
+        super(C3, self).__init__()        
+        # Conversion de c1 en entier si c'est une liste/tuple
+        if isinstance(c1, (list, tuple)):
+            c1 = c1[0] if len(c1) > 0 else c1
+        c1 = int(c1)
+        c2 = int(c2)
+        
         c_ = int(c2 * e)  # hidden channels
+        self.cv1 = None
+        self.cv2 = None
+        self.cv3 = None
+        self.m = None
+        self.c1 = c1
+        self.c2 = c2
+        self.c_ = c_
+        self.n = n
+        self.shortcut = shortcut
+        self.g = g
+        self.e = e
+
+    def _init_layers(self, c1):
+        c_ = self.c_
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = Conv(c1, c_, 1, 1)
-        self.cv3 = Conv(2 * c_, c2, 1)  # act=FReLU(c2)
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.cv3 = Conv(2 * c_, self.c2, 1)  # act=FReLU(c2)
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, self.shortcut, self.g, e=1.0) for _ in range(self.n)])
 
     def forward(self, x):
+        # Initialiser dynamiquement les couches si elles n'existent pas encore
+        # ou si la dimension d'entrée a changé
+        c1 = x.shape[1]
+        if self.cv1 is None or self.cv1.conv.in_channels != c1:
+            self._init_layers(c1)
+            
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
 class ShuffleV2Block(nn.Module):
