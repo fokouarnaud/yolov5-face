@@ -1,31 +1,51 @@
 # Hyperparameters for ADYOLOv5-Face training
-# Optimisé pour la détection des petits visages
-lr0: 0.01  # taux d'apprentissage initial
-lrf: 0.1  # final OneCycleLR learning rate (lr0 * lrf)
+# Optimized for better detection of small faces
+
+# Basic
+lr0: 0.01  # initial learning rate (SGD=1E-2, Adam=1E-3)
+lrf: 0.2  # final OneCycleLR learning rate (lr0 * lrf)
 momentum: 0.937  # SGD momentum/Adam beta1
 weight_decay: 0.0005  # optimizer weight decay
-warmup_epochs: 3.0  # warmup epochs
+warmup_epochs: 3.0  # warmup epochs (fractions ok)
 warmup_momentum: 0.8  # warmup initial momentum
 warmup_bias_lr: 0.1  # warmup initial bias lr
-box: 0.05  # poids de la perte de bbox
-cls: 0.5  # poids de la perte de classe
-landmark: 0.005  # poids de la perte des points de repère
+
+# Augmentation
+hsv_h: 0.015  # image HSV-Hue augmentation (fraction)
+hsv_s: 0.7  # image HSV-Saturation augmentation (fraction)
+hsv_v: 0.4  # image HSV-Value augmentation (fraction)
+degrees: 0.0  # image rotation (+/- deg)
+translate: 0.1  # image translation (+/- fraction)
+scale: 0.5  # image scale (+/- gain)
+shear: 0.0  # image shear (+/- deg)
+perspective: 0.0  # image perspective (+/- fraction), range 0-0.001
+flipud: 0.0  # image flip up-down (probability)
+fliplr: 0.5  # image flip left-right (probability)
+mosaic: 1.0  # image mosaic (probability)
+mixup: 0.0  # image mixup (probability)
+
+# Small face detection optimization
+max_box_per_img: 300  # maximum number of boxes per image
+small_face_weight: 1.5  # higher weight for small faces in loss function
+min_face_size: 4  # minimum face size to detect (pixels)
+anchor_t: 4.0  # anchor-multiple threshold for assigning anchors to targets
+loss_ota: 1  # use OTA (Optimal Transport Assignment) for target assignment
+
+# Loss coefficients
+box: 0.05  # box loss gain
+cls: 0.5  # cls loss gain
+landmark: 1.0  # landmark loss gain
 cls_pw: 1.0  # cls BCELoss positive_weight
-obj: 1.5  # poids de la perte d'objet (augmenté pour les petits visages)
-obj_pw: 1.5  # obj BCELoss positive_weight (augmenté pour les petits visages)
-iou_t: 0.15  # seuil IoU pour assigner l'objet correct (réduit pour les petits visages)
-anchor_t: 3.0  # anchor-multiple threshold (ajusté pour les petits visages)
+obj: 1.0  # obj loss gain (scale with pixels)
+obj_pw: 1.0  # obj BCELoss positive_weight
+iou_t: 0.20  # IoU training threshold
+anchor_t: 4.0  # anchor-multiple threshold
 fl_gamma: 0.0  # focal loss gamma (efficientDet default gamma=1.5)
-hsv_h: 0.015  # augmentation image HSV-Hue 
-hsv_s: 0.7  # augmentation image HSV-Saturation
-hsv_v: 0.4  # augmentation image HSV-Value
-degrees: 0.0  # augmentation image rotation (+/- deg)
-translate: 0.1  # augmentation image translation (+/- fraction)
-scale: 0.5  # augmentation image scale (+/- gain)
-shear: 0.0  # augmentation image shear (+/- deg)
-perspective: 0.0  # augmentation image perspective (+/- fraction), range 0-0.001
-flipud: 0.0  # augmentation image flips up-down (probability)
-fliplr: 0.5  # augmentation image flips left-right (probability)
-mosaic: 0.8  # augmentation image mosaics (probability)
-mixup: 0.1  # augmentation image mixup (probability)
-copy_paste: 0.0  # probabilité de l'augmentation de copier-coller de l'image
+
+# Face-specific parameters
+face_iou_thr: 0.5  # IoU threshold for face detection
+face_landmark_alpha: 1.0  # Landmark loss weight factor
+face_confidence_threshold: 0.25  # Confidence threshold for face detection
+
+# P2 detection layer specific
+p2_weight: 1.5  # Higher weight for P2 detection layer (small faces)

@@ -165,7 +165,7 @@ class SmallFaceDetectionHead(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None):  # model, input channels, number of classes
+    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, anchors=None):  # model, input channels, number of classes
         super(Model, self).__init__()
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
@@ -185,13 +185,38 @@ class Model(nn.Module):
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
         # Build strides, anchors
-        m = self.model[-1]  # Detect()
-        if isinstance(m, Detect):
-            s = 128  # 2x min stride
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
-            m.anchors /= m.stride.view(-1, 1, 1)
-            check_anchor_order(m)
-            self.stride = m.stride
+        # Trouver toutes les instances de Detect
+        self.detect_layers = [m for m in self.model if isinstance(m, Detect)]
+        
+        if len(self.detect_layers) > 0:
+            # Si c'est ADYOLOv5 (plusieurs têtes de détection)
+            if len(self.detect_layers) > 1:
+                # Pour ADYOLOv5-Face avec 4 têtes de détection
+                s = 128  # 2x min stride
+                dummy_input = torch.zeros(1, ch, s, s)
+                outputs = self.forward(dummy_input)
+                
+                # Gérer les strides pour chaque tête
+                strides = [4, 8, 16, 32]  # P2, P3, P4, P5 (valeurs fixes pour ADYOLOv5)
+                
+                for i, m in enumerate(self.detect_layers):
+                    if i < len(strides):
+                        m.stride = torch.tensor([strides[i]])
+                        m.anchors /= m.stride.view(-1, 1, 1)
+                        check_anchor_order(m)
+                
+                # Utiliser les strides de la première tête comme strides du modèle
+                self.stride = self.detect_layers[0].stride
+                
+            else:
+                # Pour YOLOv5-Face standard (une seule tête)
+                m = self.detect_layers[0]
+                s = 128  # 2x min stride
+                m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
+                m.anchors /= m.stride.view(-1, 1, 1)
+                check_anchor_order(m)
+                self.stride = m.stride
+                
             self._initialize_biases()  # only run once
             # print('Strides: %s' % m.stride.tolist())
 
@@ -222,10 +247,12 @@ class Model(nn.Module):
 
     def forward_once(self, x, profile=False):
         y, dt = [], []  # outputs
+        detection_outputs = []  # Pour stocker les sorties des couches Detect
+        
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-                # S'assurer que x est une liste si m.f est une liste (pour GatherLayer et DistributeLayer)
+                # S'assurer que x est une liste si m.f est une liste (pour GDFusion)
                 if not isinstance(x, list) and isinstance(m.f, list):
                     x = [x]  # Convertir en liste si ce n'est pas déjà une liste
 
@@ -238,21 +265,36 @@ class Model(nn.Module):
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
             x = m(x)  # run
+            
+            # Si la couche est Detect, stocker sa sortie
+            if isinstance(m, Detect):
+                if not self.training and len(self.detect_layers) > 1:  # En mode inférence avec plusieurs têtes
+                    detection_outputs.append(x[0])  # x[0] = resultat de la detection (x[1] = features maps)
+                
             y.append(x if m.i in self.save else None)  # save output
 
         if profile:
             print('%.1fms total' % sum(dt))
-        return x
+            
+        # En mode inférence avec plusieurs têtes de détection
+        if not self.training and len(self.detect_layers) > 1 and detection_outputs:
+            # Fusionner les sorties des différentes têtes de détection
+            # En mode ADYOLOv5, on renvoie le tuple (résultats fusionnés, features maps)
+            return (torch.cat(detection_outputs, 1), x[1]) if isinstance(x, tuple) else x
+        else:
+            return x
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
         # https://arxiv.org/abs/1708.02002 section 3.3
         # cf = torch.bincount(torch.tensor(np.concatenate(dataset.labels, 0)[:, 0]).long(), minlength=nc) + 1.
-        m = self.model[-1]  # Detect() module
-        for mi, s in zip(m.m, m.stride):  # from
-            b = mi.bias.view(m.na, -1)  # conv.bias(255) to (3,85)
-            b.data[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
-            b.data[:, 5:] += math.log(0.6 / (m.nc - 0.99)) if cf is None else torch.log(cf / cf.sum())  # cls
-            mi.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
+        
+        # Initialiser les biais pour chaque tête de détection
+        for det in self.detect_layers:
+            for mi, s in zip(det.m, det.stride):  # from
+                b = mi.bias.view(det.na, -1)  # conv.bias(255) to (3,85)
+                b.data[:, 4] += math.log(8 / (640 / s) ** 2)  # obj (8 objects per 640 image)
+                b.data[:, 5:] += math.log(0.6 / (det.nc - 0.99)) if cf is None else torch.log(cf / cf.sum())  # cls
+                mi.bias = torch.nn.Parameter(b.view(-1), requires_grad=True)
 
     def _print_biases(self):
         m = self.model[-1]  # Detect() module
@@ -307,41 +349,69 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
     
-    # PyTorch 2+ compatibility function
-    def normalize_args(args):
-        """Normalise tous les types d'arguments pour assurer la compatibilité avec PyTorch 2.6+"""
+    # Fonction de débogage
+    def debug_parse(i, f, n, m, args):
+        print(f"\nLayer {i}: \n  f={f} (type: {type(f)})\n  n={n}\n  m={m}\n  args={args} (type: {type(args)})")
+        
+        if isinstance(f, list):
+            print(f"  f is a list of length {len(f)}")
+            for idx, item in enumerate(f):
+                print(f"    f[{idx}] = {item} (type: {type(item)})")
+        
         if isinstance(args, list):
-            # Convertir les listes en tuples car PyTorch 2.6+ préfère les tuples pour certains arguments
-            if len(args) > 0:
-                return [normalize_args(a) for a in args]
+            print(f"  args is a list of length {len(args)}")
+            for idx, arg in enumerate(args):
+                print(f"    args[{idx}] = {arg} (type: {type(arg)})")
+        
+        print("\n")
+
+    
+    # PyTorch 2+ compatibility function
+    def normalize_args(args, batch_size=1, num_channels=3):
+        """Normalizes arguments to be compatible with PyTorch 2.6+"""
+        if isinstance(args, torch.Tensor):
             return args
-        elif isinstance(args, tuple):
-            # Normaliser chaque élément du tuple
-            if len(args) > 0:
-                return tuple(normalize_args(list(args)))
+        if isinstance(args, tuple) and not args:
             return args
-        elif isinstance(args, dict):
-            # Normaliser les clés et valeurs du dictionnaire
-            return {k: normalize_args(v) for k, v in args.items()}
-        elif isinstance(args, (int, float)):
-            # S'assurer que les valeurs numériques pour les paramètres comme 'groups' sont des entiers positifs
-            if args < 0:
-                return 1  # Valeur par défaut pour les paramètres qui doivent être positifs
-            return int(args) if isinstance(args, float) else args
-        else:
-            # Laisser les autres types inchangés
+        if isinstance(args, (list, tuple)) and isinstance(args[0], int):
             return args
+        
+        # Handle strings and other non-tensor types
+        if isinstance(args, str) or not hasattr(args, '__iter__'):
+            return args
+        
+        # This is where the error was happening with list indices
+        normalized_args = []
+        for arg in args:
+            if isinstance(arg, (list, tuple)) and len(arg) == 2 and all(isinstance(x, int) for x in arg):
+                # This is likely a from layer reference in the YAML
+                normalized_args.append(arg)
+            else:
+                normalized_args.append(normalize_args(arg, batch_size, num_channels))
+        
+        return normalized_args
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
-        for j, a in enumerate(args):
-            try:
-                args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-                # Normaliser les arguments pour PyTorch 2+
-                args[j] = normalize_args(args[j])
-            except:
-                pass
+        try:
+            # Débogage
+            debug_parse(i, f, n, m, args)
+            
+            m = eval(m) if isinstance(m, str) else m  # eval strings
+            for j, a in enumerate(args):
+                try:
+                    args[j] = eval(a) if isinstance(a, str) else a  # eval strings
+                    # Normaliser les arguments pour PyTorch 2+
+                    args[j] = normalize_args(args[j])
+                except Exception as e:
+                    print(f"\nError processing args[{j}] = {a} for layer {i}:")
+                    print(f"Exception: {e}")
+                    pass
+        except Exception as e:
+            print(f"\nError processing layer {i}:")
+            print(f"Exception: {e}")
+            # Continuer au lieu de planter complètement
+            continue
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer]:

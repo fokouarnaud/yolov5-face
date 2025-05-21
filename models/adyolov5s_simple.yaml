@@ -1,72 +1,84 @@
-# Modèle ADYOLOv5s - Implémentation fidèle à l'article
+# ADYOLOv5s architecture with Gather-and-Distribute mechanism
+# Anchors
+nc: 1  # number of classes (face only)
+depth_multiple: 0.33  # model depth multiple
+width_multiple: 0.50  # layer channel multiple
 
-# Paramètres
-nc: 1  # nombre de classes (1 pour les visages)
-depth_multiple: 0.33  # facteur pour la profondeur du modèle
-width_multiple: 0.50  # facteur pour la largeur du modèle
-
-# Anchors - Standard 3 échelles + 1 échelle pour les petits visages
+# Anchors
 anchors:
-  - [10,13, 16,30, 33,23]  # P3/8
-  - [30,61, 62,45, 59,119]  # P4/16
-  - [116,90, 156,198, 373,326]  # P5/32
-  - [5,6, 8,14, 16,12]  # P2/4 (ajouté pour les petits visages)
+  - [4,5, 8,10, 13,16]  # P2/4 - small faces
+  - [19,36, 40,28, 36,75]  # P3/8
+  - [76,55, 72,146, 142,110]  # P4/16
+  - [192,243, 459,401, 368,539]  # P5/32
 
-# CSPDarknet53 backbone (identique à l'article)
+# YOLOv5 backbone
 backbone:
   # [from, number, module, args]
-  [[-1, 1, Conv, [64, 6, 2, 2]],  # 0-P1/2
+  [[-1, 1, Focus, [64, 3]],  # 0-P1/2
    [-1, 1, Conv, [128, 3, 2]],  # 1-P2/4
-   [-1, 3, C3, [128]],          # 2 
+   [-1, 3, C3, [128]],  # 2
    [-1, 1, Conv, [256, 3, 2]],  # 3-P3/8
-   [-1, 9, C3, [256]],          # 4
+   [-1, 9, C3, [256]],  # 4
    [-1, 1, Conv, [512, 3, 2]],  # 5-P4/16
-   [-1, 9, C3, [512]],          # 6
-   [-1, 1, Conv, [1024, 3, 2]], # 7-P5/32
-   [-1, 1, SPP, [1024, [5, 9, 13]]],
+   [-1, 9, C3, [512]],  # 6
+   [-1, 1, Conv, [1024, 3, 2]],  # 7-P5/32
+   [-1, 1, SPP, [1024, [5, 9, 13]]],  # 8
    [-1, 3, C3, [1024, False]],  # 9
   ]
 
-# Neck avec mécanisme Gather-and-Distribute (figure 2 de l'article)
+# YOLOv5 head with Gather-and-Distribute
 head:
-  # Feature Map Gathering (P5/32 -> P4/16 -> P3/8)
-  [[-1, 1, Conv, [512, 1, 1]],      # 10 (P5/32)
-   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 11 (P5/32 → P4/16)
-   [[-1, 6], 1, Concat, [1]],       # 12 Concat avec P4
-   [-1, 3, C3, [512, False]],       # 13 (P4/16)
+  [[-1, 1, Conv, [512, 1, 1]],  # 10
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 11
+   [[-1, 6], 1, Concat, [1]],  # 12 (cat with P4)
+   [-1, 3, C3, [512, False]],  # 13
    
-   [-1, 1, Conv, [256, 1, 1]],      # 14 (P4/16)
-   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 15 (P4/16 → P3/8)
-   [[-1, 4], 1, Concat, [1]],       # 16 Concat avec P3
-   [-1, 3, C3, [256, False]],       # 17 (P3/8)
+   [-1, 1, Conv, [256, 1, 1]],  # 14
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 15
+   [[-1, 4], 1, Concat, [1]],  # 16 (cat with P3)
+   [-1, 3, C3, [256, False]],  # 17
    
-   [-1, 1, Conv, [128, 1, 1]],      # 18 (P3/8)
-   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 19 (P3/8 → P2/4)
-   [[-1, 2], 1, Concat, [1]],       # 20 Concat avec P2
-   [-1, 1, C3, [128, False]],       # 21 (P2/4) - Feature pour les TRÈS petits visages
+   # P2 pathway for small faces (ADYOLOv5 addition)
+   [-1, 1, Conv, [128, 1, 1]],  # 18
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 19
+   [[-1, 2], 1, Concat, [1]],  # 20 (cat with P2)
+   [-1, 3, C3, [128, False]],  # 21 (P2/4)
    
-   # Implémentation simplifiée du Low-Stage GD - Fusion et Injection
-   [[17, 13, 10], 1, AttentionFusion, [256]], # 22: Global Low-Level Features
+   # Low-Stage GD - Gather features
+   [17, 1, Conv, [256, 3, 2]],  # 22 (P3/8 -> P4/16)
+   [[-1, 13], 1, GDFusion, [256, 'attention']], # 23 (Low-Stage Fusion at P4 level)
+   [-1, 3, C3, [512, False]],  # 24
    
-   # Partie descendante avec enrichissement des features
-   # P2/4 -> P3/8 (avec Global Feature injection)
-   [21, 1, Conv, [256, 3, 2]],      # 23 (P2/4 -> P3/8)
-   [[-1, 17, 22], 1, Concat, [1]],  # 24 Fusion avec P3/8 et Global Features
-   [-1, 3, C3, [256, False]],       # 25 (P3/8 enrichi)
+   [24, 1, Conv, [512, 3, 2]],  # 25 (P4/16 -> P5/32)
+   [[-1, 10], 1, GDFusion, [512, 'attention']], # 26 (Low-Stage Fusion at P5 level)
+   [-1, 3, C3, [1024, False]],  # 27
    
-   # P3/8 -> P4/16 (avec Global Feature injection)
-   [-1, 1, Conv, [512, 3, 2]],      # 26 (P3/8 -> P4/16)
-   [[-1, 13, 22], 1, Concat, [1]],  # 27 Fusion avec P4/16 et Global Features
-   [-1, 3, C3, [512, False]],       # 28 (P4/16 enrichi)
+   # High-Stage GD - Distribute features
+   [27, 1, Conv, [512, 1, 1]],  # 28
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 29
+   [[-1, 24], 1, GDFusion, [512, 'transformer']], # 30 (High-Stage Fusion at P4 level)
+   [-1, 3, C3, [512, False]],  # 31
    
-   # P4/16 -> P5/32 (avec Global Feature injection)
-   [-1, 1, Conv, [1024, 3, 2]],     # 29 (P4/16 -> P5/32)
-   [[-1, 10, 22], 1, Concat, [1]],  # 30 Fusion avec P5/32 et Global Features
-   [-1, 3, C3, [1024, False]],      # 31 (P5/32 enrichi)
+   [31, 1, Conv, [256, 1, 1]],  # 32
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 33
+   [[-1, 17], 1, GDFusion, [256, 'transformer']], # 34 (High-Stage Fusion at P3 level)
+   [-1, 3, C3, [256, False]],  # 35
    
-   # Implémentation simplifiée du High-Stage GD - Transformer-like Fusion
-   [[25, 28, 31], 1, TransformerFusion, [512]], # 32: High-Level Features avec mécanisme d'attention
+   [35, 1, Conv, [128, 1, 1]],  # 36
+   [-1, 1, nn.Upsample, [None, 2, 'nearest']],  # 37
+   [[-1, 21], 1, GDFusion, [128, 'transformer']], # 38 (High-Stage Fusion at P2 level)
+   [-1, 3, C3, [128, False]],  # 39
    
-   # Détection à 4 échelles (P2/4, P3/8, P4/16, P5/32) comme dans l'article
-   [[21, 25, 28, 31], 1, Detect, [nc, anchors]], # 33: Détection aux 4 échelles
+   # Detect layers
+   [39, 1, Conv, [128, 3, 1]],  # 40 (P2/4 detection)
+   [-1, 1, Detect, [nc, anchors[0]]],  # 41 Detection Head for P2/4 (small faces)
+   
+   [35, 1, Conv, [256, 3, 1]],  # 42 (P3/8 detection)
+   [-1, 1, Detect, [nc, anchors[1]]],  # 43 Detection Head for P3/8
+   
+   [31, 1, Conv, [512, 3, 1]],  # 44 (P4/16 detection)
+   [-1, 1, Detect, [nc, anchors[2]]],  # 45 Detection Head for P4/16
+   
+   [27, 1, Conv, [1024, 3, 1]],  # 46 (P5/32 detection)
+   [-1, 1, Detect, [nc, anchors[3]]],  # 47 Detection Head for P5/32
   ]
