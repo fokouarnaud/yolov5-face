@@ -310,6 +310,12 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 # comme référence pour les dimensions d'entrée
                 c1 = sum([ch[x + 1] if x != -1 else ch[-1] for x in f])  # Somme des canaux d'entrée
                 c2 = args[0]
+                
+                # Traitement spécial pour GatherLayer et DistributeLayer
+                if m in [GatherLayer, DistributeLayer]:
+                    # Ne garder que le premier argument pour ces classes spécifiques
+                    # car elles n'ont besoin que du nombre de canaux
+                    args = [args[0]]
             else:
                 c1, c2 = ch[f], args[0]
 

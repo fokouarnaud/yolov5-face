@@ -477,7 +477,7 @@ class Detections:
 
 class GatherLayer(nn.Module):
     """Couche de rassemblement pour le mécanisme GD (Gather-and-Distribute)"""
-    def __init__(self, channels):
+    def __init__(self, channels, *args):
         super(GatherLayer, self).__init__()
         # S'assurer que channels est un entier
         if isinstance(channels, (list, tuple)):
@@ -498,7 +498,7 @@ class GatherLayer(nn.Module):
 
 class DistributeLayer(nn.Module):
     """Couche de distribution pour le mécanisme GD (Gather-and-Distribute)"""
-    def __init__(self, channels):
+    def __init__(self, channels, *args):
         super(DistributeLayer, self).__init__()
         # S'assurer que channels est un entier
         if isinstance(channels, (list, tuple)):
