@@ -1,3 +1,14 @@
+import math
+import numpy as np
+import requests
+import torch
+import torch.nn as nn
+from PIL import Image, ImageDraw
+
+from utils.datasets import letterbox
+from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
+from utils.plots import color_list
+
 class DynamicConv2d(nn.Module):
     """Conv2d avec adaptation dynamique des dimensions d'entrée"""
     def __init__(self, c1, c2, k=1, s=1, p=None, bias=True):
@@ -38,17 +49,7 @@ class DynamicConv2d(nn.Module):
             
         return self.conv(x)# This file contains modules common to various models
 
-import math
 
-import numpy as np
-import requests
-import torch
-import torch.nn as nn
-from PIL import Image, ImageDraw
-
-from utils.datasets import letterbox
-from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
-from utils.plots import color_list
 
 def autopad(k, p=None):  # kernel, padding
     # Pad to 'same'
