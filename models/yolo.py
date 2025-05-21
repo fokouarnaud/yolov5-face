@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, ShuffleV2Block, Concat, NMS, autoShape, StemBlock, BlazeBlock, DoubleBlazeBlock
 from models.experimental import MixConv2d, CrossConv
+from models.gd import LowStageGD, HighStageGD
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
@@ -22,6 +23,22 @@ try:
     import thop  # for FLOPS computation
 except ImportError:
     thop = None
+
+
+def normalize_conv_args(c1, c2, k=1, s=1, p=None, g=1, d=1):
+    """Normalise les arguments pour assurer la compatibilité avec PyTorch 2+"""
+    # Convertir les tuples/listes en entiers si nécessaire
+    if isinstance(g, (list, tuple)) and len(g) == 1:
+        g = g[0]
+    if isinstance(k, (list, tuple)) and len(k) == 1:
+        k = k[0]
+    if isinstance(s, (list, tuple)) and len(s) == 1:
+        s = s[0]
+    if isinstance(p, (list, tuple)) and len(p) == 1:
+        p = p[0]
+    if isinstance(d, (list, tuple)) and len(d) == 1:
+        d = d[0]
+    return c1, c2, k, s, p, g, d
 
 
 class Detect(nn.Module):
@@ -123,6 +140,21 @@ class Detect(nn.Module):
         grid = torch.stack((xv, yv), 2).expand((1, self.na, ny, nx, 2)).float()
         anchor_grid = (self.anchors[i].clone() * self.stride[i]).view((1, self.na, 1, 1, 2)).expand((1, self.na, ny, nx, 2)).float()
         return grid, anchor_grid
+
+
+class SmallFaceDetectionHead(nn.Module):
+    """Tête de détection spécifique pour les petits visages"""
+    def __init__(self, in_channels, num_classes=1):
+        super(SmallFaceDetectionHead, self).__init__()
+        self.conv = Conv(in_channels, in_channels, k=3, p=1)
+        self.out_conv = nn.Conv2d(in_channels, 18, 1)  # 6 classes × 3 anchors
+        self.nc = num_classes
+        
+    def forward(self, x):
+        x = self.conv(x)
+        return self.out_conv(x)
+
+
 class Model(nn.Module):
     def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None):  # model, input channels, number of classes
         super(Model, self).__init__()
@@ -306,6 +338,14 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             args.append([ch[x + 1] for x in f])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(f)
+        elif m is nn.Conv2d:
+            c1 = ch[f]
+            c2 = args[0] # nombre de sorties
+        elif m in [LowStageGD, HighStageGD]:
+            c2 = args[0]  # nombre de canaux de sortie
+        elif m is SmallFaceDetectionHead:
+            c1 = ch[f]
+            c2 = 18  # 6 classes × 3 anchors (pour landmarks)
         else:
             c2 = ch[f]
 
