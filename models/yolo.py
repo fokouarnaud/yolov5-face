@@ -193,6 +193,9 @@ class Model(nn.Module):
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
+                # S'assurer que x est une liste si m.f est une liste (pour GatherLayer et DistributeLayer)
+                if not isinstance(x, list) and isinstance(m.f, list):
+                    x = [x]  # Convertir en liste si ce n'est pas déjà une liste
 
             if profile:
                 o = thop.profile(m, inputs=(x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPS
@@ -301,7 +304,14 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer]:
-            c1, c2 = ch[f], args[0]
+            # Gérer le cas spécial où f est une liste (pour GatherLayer et DistributeLayer)
+            if isinstance(f, list):
+                # Pour GatherLayer et DistributeLayer, nous prenons le premier élément de la liste
+                # comme référence pour les dimensions d'entrée
+                c1 = sum([ch[x + 1] if x != -1 else ch[-1] for x in f])  # Somme des canaux d'entrée
+                c2 = args[0]
+            else:
+                c1, c2 = ch[f], args[0]
 
             # Normal
             # if i > 0 and args[0] != no:  # channel expansion factor
@@ -328,6 +338,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
         elif m is Concat:
+            # Calcul correct de c2 pour Concat, en utilisant la même logique que pour GatherLayer/DistributeLayer
             c2 = sum([ch[-1 if x == -1 else x + 1] for x in f])
         elif m is Detect:
             args.append([ch[x + 1] for x in f])
