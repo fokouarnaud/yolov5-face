@@ -477,45 +477,65 @@ class Detections:
 
 class GatherLayer(nn.Module):
     """Couche de rassemblement pour le mécanisme GD (Gather-and-Distribute)"""
-    def __init__(self, channels, *args):
+    def __init__(self, out_channels, *args):
         super(GatherLayer, self).__init__()
-        # S'assurer que channels est un entier
-        if isinstance(channels, (list, tuple)):
-            channels = channels[0] if len(channels) > 0 else channels
-        channels = int(channels)
-            
-        self.cv1 = Conv(channels, channels, 1, 1)
-        self.cv2 = Conv(2 * channels, channels, 1, 1)
+        # S'assurer que out_channels est un entier
+        if isinstance(out_channels, (list, tuple)):
+            out_channels = out_channels[0] if len(out_channels) > 0 else out_channels
+        self.out_channels = int(out_channels)
+        
+        # Les couches de convolution seront créées dynamiquement dans forward
+        self.cv1 = None
+        self.cv2 = None
         
     def forward(self, x):
         # Gérer le cas où x est une liste ou un tuple
         if not isinstance(x, (list, tuple)) or len(x) < 2:
             raise ValueError("GatherLayer s'attend à recevoir une liste ou tuple avec au moins 2 éléments")
             
-        # x[0] est la caractéristique de la couche actuelle
-        # x[1] est la caractéristique de la couche précédente (upsampled)
-        return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))
+        # Détecter dynamiquement les dimensions des entrées
+        x1, x2 = x[0], x[1]
+        in_channels = x1.shape[1]  # Nombre de canaux de l'entrée actuelle
+        
+        # Créer la couche de convolution adaptée à la dimension de l'entrée
+        if self.cv1 is None or self.cv1.conv.in_channels != in_channels:
+            self.cv1 = Conv(in_channels, self.out_channels, 1, 1)
+            self.cv2 = Conv(self.out_channels + x2.shape[1], self.out_channels, 1, 1)
+        
+        # x1 est la caractéristique de la couche actuelle
+        # x2 est la caractéristique de la couche précédente (upsampled)
+        return self.cv2(torch.cat([self.cv1(x1), x2], 1))
 
 class DistributeLayer(nn.Module):
     """Couche de distribution pour le mécanisme GD (Gather-and-Distribute)"""
-    def __init__(self, channels, *args):
+    def __init__(self, out_channels, *args):
         super(DistributeLayer, self).__init__()
-        # S'assurer que channels est un entier
-        if isinstance(channels, (list, tuple)):
-            channels = channels[0] if len(channels) > 0 else channels
-        channels = int(channels)
-            
-        self.cv1 = Conv(channels, channels, 1, 1)
-        self.cv2 = Conv(2 * channels, channels, 1, 1)
+        # S'assurer que out_channels est un entier
+        if isinstance(out_channels, (list, tuple)):
+            out_channels = out_channels[0] if len(out_channels) > 0 else out_channels
+        self.out_channels = int(out_channels)
+        
+        # Les couches de convolution seront créées dynamiquement dans forward
+        self.cv1 = None
+        self.cv2 = None
         
     def forward(self, x):
         # Gérer le cas où x est une liste ou un tuple
         if not isinstance(x, (list, tuple)) or len(x) < 2:
             raise ValueError("DistributeLayer s'attend à recevoir une liste ou tuple avec au moins 2 éléments")
             
-        # x[0] est la caractéristique de la couche actuelle (convolved)
-        # x[1] est la caractéristique de la couche cible
-        return self.cv2(torch.cat([self.cv1(x[0]), x[1]], 1))
+        # Détecter dynamiquement les dimensions des entrées
+        x1, x2 = x[0], x[1]
+        in_channels = x1.shape[1]  # Nombre de canaux de l'entrée actuelle
+        
+        # Créer la couche de convolution adaptée à la dimension de l'entrée
+        if self.cv1 is None or self.cv1.conv.in_channels != in_channels:
+            self.cv1 = Conv(in_channels, self.out_channels, 1, 1)
+            self.cv2 = Conv(self.out_channels + x2.shape[1], self.out_channels, 1, 1)
+        
+        # x1 est la caractéristique de la couche actuelle (convolved)
+        # x2 est la caractéristique de la couche cible
+        return self.cv2(torch.cat([self.cv1(x1), x2], 1))
 
 class Classify(nn.Module):
     # Classification head, i.e. x(b,c1,20,20) to x(b,c2)
