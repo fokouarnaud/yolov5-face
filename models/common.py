@@ -44,7 +44,7 @@ def DWConv(c1, c2, k=1, s=1, act=True):
     return Conv(c1, c2, k, s, g=g, act=act)
 
 class Conv(nn.Module):
-    # Standard convolution
+    # Standard convolution with dynamic input handling
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Conv, self).__init__()
         
@@ -61,53 +61,132 @@ class Conv(nn.Module):
             g = g[0] if len(g) > 0 else g
             
         # Convertir les arguments en entiers et s'assurer qu'ils sont positifs
-        c1, c2 = int(c1), int(c2)
-        k = int(k) if isinstance(k, (int, float)) else k
-        s = int(s) if isinstance(s, (int, float)) else s
-        g = int(g) if isinstance(g, (int, float)) else 1
-        g = max(1, g)  # groups doit être au moins 1
+        self.c1_expected = int(c1) if not isinstance(c1, str) else 0  # Attendu
+        self.c2 = int(c2) if not isinstance(c2, str) else 0
+        self.k = int(k) if isinstance(k, (int, float)) else k
+        self.s = int(s) if isinstance(s, (int, float)) else s
+        self.p = p
+        self.g = int(g) if isinstance(g, (int, float)) else 1
+        self.g = max(1, self.g)  # groups doit être au moins 1
+        self.act_type = act
+        
+        # Créer les couches dynamiquement dans forward
+        self.conv = None
+        self.bn = None
+        self.act = None
             
-        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
-        self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-        #self.act = self.act = nn.LeakyReLU(0.1, inplace=True) if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+    def _create_layers(self, c1_actual):
+        # Créer les couches avec les dimensions réelles
+        self.conv = nn.Conv2d(c1_actual, self.c2, self.k, self.s, autopad(self.k, self.p), groups=self.g, bias=False)
+        self.bn = nn.BatchNorm2d(self.c2)
+        self.act = nn.SiLU() if self.act_type is True else (self.act_type if isinstance(self.act_type, nn.Module) else nn.Identity())
 
     def forward(self, x):
+        # Détecter les dimensions d'entrée réelles
+        c1_actual = x.shape[1]
+        
+        # Initialiser ou réinitialiser les couches si nécessaire
+        if self.conv is None or self.conv.in_channels != c1_actual:
+            self._create_layers(c1_actual)
+            
         return self.act(self.bn(self.conv(x)))
 
     def fuseforward(self, x):
+        # Détecter les dimensions d'entrée réelles
+        c1_actual = x.shape[1]
+        
+        # Initialiser ou réinitialiser les couches si nécessaire
+        if self.conv is None or self.conv.in_channels != c1_actual:
+            self._create_layers(c1_actual)
+            
         return self.act(self.conv(x))
 
 class StemBlock(nn.Module):
     def __init__(self, c1, c2, k=3, s=2, p=None, g=1, act=True):
         super(StemBlock, self).__init__()
-        self.stem_1 = Conv(c1, c2, k, s, p, g, act)
-        self.stem_2a = Conv(c2, c2 // 2, 1, 1, 0)
-        self.stem_2b = Conv(c2 // 2, c2, 3, 2, 1)
-        self.stem_2p = nn.MaxPool2d(kernel_size=2,stride=2,ceil_mode=True)
-        self.stem_3 = Conv(c2 * 2, c2, 1, 1, 0)
+        
+        # Conversion en entiers si nécessaire
+        if isinstance(c1, (list, tuple)):
+            c1 = c1[0] if len(c1) > 0 else c1
+        if isinstance(c2, (list, tuple)):
+            c2 = c2[0] if len(c2) > 0 else c2
+            
+        self.c1 = int(c1) if not isinstance(c1, str) else 0
+        self.c2 = int(c2) if not isinstance(c2, str) else 0
+        
+        # Initialisation dynamique
+        self.stem_1 = None
+        self.stem_2a = None
+        self.stem_2b = None
+        self.stem_2p = None
+        self.stem_3 = None
+        
+        # Paramètres pour créer les couches dynamiquement
+        self.k = k
+        self.s = s
+        self.p = p
+        self.g = g
+        self.act = act
+
+    def _init_layers(self, c1_actual):
+        self.stem_1 = Conv(c1_actual, self.c2, self.k, self.s, self.p, self.g, self.act)
+        self.stem_2a = Conv(self.c2, self.c2 // 2, 1, 1, 0)
+        self.stem_2b = Conv(self.c2 // 2, self.c2, 3, 2, 1)
+        self.stem_2p = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
+        self.stem_3 = Conv(self.c2 * 2, self.c2, 1, 1, 0)
 
     def forward(self, x):
+        # Détecter les dimensions d'entrée réelles
+        c1_actual = x.shape[1]
+        
+        # Initialiser ou réinitialiser les couches si nécessaire
+        if self.stem_1 is None:
+            self._init_layers(c1_actual)
+            
         stem_1_out  = self.stem_1(x)
         stem_2a_out = self.stem_2a(stem_1_out)
         stem_2b_out = self.stem_2b(stem_2a_out)
         stem_2p_out = self.stem_2p(stem_1_out)
-        out = self.stem_3(torch.cat((stem_2b_out,stem_2p_out),1))
+        out = self.stem_3(torch.cat((stem_2b_out, stem_2p_out), 1))
         return out
 
 class Bottleneck(nn.Module):
     # Standard bottleneck
     def __init__(self, c1, c2, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, shortcut, groups, expansion
         super(Bottleneck, self).__init__()
-        c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
+        
+        # Conversion en entiers si nécessaire
+        if isinstance(c1, (list, tuple)):
+            c1 = c1[0] if len(c1) > 0 else c1
+        if isinstance(c2, (list, tuple)):
+            c2 = c2[0] if len(c2) > 0 else c2
+            
+        self.c1 = int(c1) if not isinstance(c1, str) else 0
+        self.c2 = int(c2) if not isinstance(c2, str) else 0
+        self.e = e
+        
         # Assurez-vous que g est un entier positif pour PyTorch 2+
-        g = int(g) if isinstance(g, (int, float)) else 1
-        g = max(1, g)  # g doit être au moins 1
-        self.cv2 = Conv(c_, c2, 3, 1, g=g)
-        self.add = shortcut and c1 == c2
+        self.g = int(g) if isinstance(g, (int, float)) else 1
+        self.g = max(1, self.g)  # g doit être au moins 1
+        
+        # Initialisation dynamique
+        self.cv1 = None
+        self.cv2 = None
+        self.add = shortcut and self.c1 == self.c2
+
+    def _init_layers(self, c1_actual):
+        c_ = int(self.c2 * self.e)  # hidden channels
+        self.cv1 = Conv(c1_actual, c_, 1, 1)
+        self.cv2 = Conv(c_, self.c2, 3, 1, g=self.g)
 
     def forward(self, x):
+        # Détecter les dimensions d'entrée réelles
+        c1_actual = x.shape[1]
+        
+        # Initialiser ou réinitialiser les couches si nécessaire
+        if self.cv1 is None or self.cv1.conv is None or self.cv1.conv.in_channels != c1_actual:
+            self._init_layers(c1_actual)
+            
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
 
 class BottleneckCSP(nn.Module):
