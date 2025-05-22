@@ -1,6 +1,27 @@
 import torch
 import torch.nn as nn
-from models.common import Conv
+
+# Définition de autopad (nécessaire pour Conv)
+def autopad(k, p=None, d=1):  # kernel, padding, dilation
+    # Pad to 'same' shape outputs
+    if p is None:
+        p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
+    return p
+
+# Définition de Conv directement plutôt que de l'importer de common.py
+class Conv(nn.Module):
+    # Standard convolution with args(ch_in, ch_out, kernel, stride, padding, groups, dilation, activation)
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=False)
+        self.bn = nn.BatchNorm2d(c2)
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+
+    def forward(self, x):
+        return self.act(self.bn(self.conv(x)))
+
+    def forward_fuse(self, x):
+        return self.act(self.conv(x))
 
 class GDFusion(nn.Module):
     """
@@ -9,8 +30,20 @@ class GDFusion(nn.Module):
     """
     def __init__(self, c1, c2, fusion_type='attention'):
         super(GDFusion, self).__init__()
-        self.cv1 = Conv(c1[0], c2, 1, 1)  # Adjust first input channel
-        self.cv2 = Conv(c1[1], c2, 1, 1)  # Adjust second input channel
+        
+        # Gérer c1 comme liste de canaux d'entrée ou entier unique
+        if isinstance(c1, list):
+            # Cas où c1 est une liste de canaux [c1_0, c1_1, ...]
+            self.cv1 = Conv(c1[0], c2, 1, 1)  # Première entrée
+            if len(c1) > 1:
+                self.cv2 = Conv(c1[1], c2, 1, 1)  # Deuxième entrée
+            else:
+                self.cv2 = Conv(c1[0], c2, 1, 1)  # Même entrée copiée
+        else:
+            # Cas où c1 est un entier unique
+            self.cv1 = Conv(c1, c2, 1, 1)
+            self.cv2 = Conv(c1, c2, 1, 1)
+            
         self.fusion_type = fusion_type
         
         if fusion_type == 'attention':
@@ -18,17 +51,27 @@ class GDFusion(nn.Module):
         elif fusion_type == 'transformer':
             self.fusion = TransformerFusion(c2)
         else:
+            # Simple fusion additive avec convolution de raffinement
             self.fusion = nn.Sequential(
-                nn.Add(),  # Simple addition as fallback
-                Conv(c2, c2, 3, 1)  # Extra convolution for feature refinement
+                Conv(c2, c2, 3, 1)  # Convolution pour raffinement des caractéristiques
             )
     
     def forward(self, x):
-        # x is expected to be a list of two tensors
-        x1, x2 = x
+        # x est attendu comme une liste de deux tenseurs
+        if isinstance(x, (list, tuple)) and len(x) >= 2:
+            x1, x2 = x[0], x[1]
+        else:
+            # Si x n'est pas une liste, utiliser x comme les deux entrées
+            x1, x2 = x, x
+            
         x1 = self.cv1(x1)
         x2 = self.cv2(x2)
-        return self.fusion((x1, x2))
+        
+        if self.fusion_type in ['attention', 'transformer']:
+            return self.fusion((x1, x2))
+        else:
+            # Simple fusion additive
+            return self.fusion(x1 + x2)
 
 class AttentionFusion(nn.Module):
     """

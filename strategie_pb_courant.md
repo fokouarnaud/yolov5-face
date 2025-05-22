@@ -1,6 +1,6 @@
 # Stratégie d'implémentation ADYOLOv5-Face
 
-*Date: 21 mai 2025*
+*Date: 21 mai 2025 - Mise à jour: 22 mai 2025*
 
 ## Architecture ADYOLOv5-Face
 
@@ -39,27 +39,56 @@ ADYOLOv5-Face est une amélioration de YOLOv5-Face qui ajoute:
 - Gestion des strides multiples (4, 8, 16, 32)
 - Fusion des sorties de détection de toutes les têtes
 
-## Problèmes potentiels et solutions
+## Problèmes résolus
 
 ### 1. Erreur "list indices must be integers or slices, not list"
 - **Cause**: Incompatibilité dans le parsing du YAML
-- **Solution**: Utiliser la fonction de débogage `debug_parse()` pour identifier la couche problématique
-- **Fix**: Corriger la structure des arguments dans le YAML ou adapter `normalize_args()`
+- **Solution**: Implémenté une meilleure fonction `normalize_args()` pour traiter correctement les listes et les tuples
+- **Fix**: Formaté les arguments YAML de manière cohérente dans adyolov5s_simple.yaml
 
-### 2. Problèmes avec les dimensions de tenseurs
+### 2. Erreur d'importation circulaire avec Conv
+- **Cause**: models/common.py importe depuis models/gd.py qui à son tour importe Conv depuis models/common.py
+- **Solution**: Définir une version autonome de Conv directement dans gd.py au lieu de l'importer
+- **Fix**: Copier l'implémentation de Conv dans gd.py pour briser la dépendance circulaire
+
+## Problèmes potentiels et solutions
+
+### 1. Problèmes avec les dimensions de tenseurs
 - **Cause**: Incompatibilité entre dimensions lors de la fusion
 - **Solution**: Vérifier les dimensions avec `print(x.shape)` aux endroits critiques
 - **Fix**: Adapter dynamiquement les dimensions ou ajouter des couches d'adaptation
 
-### 3. Erreurs de mémoire CUDA
+### 2. Erreurs de mémoire CUDA
 - **Cause**: Architecture plus complexe requérant plus de mémoire
 - **Solution**: Réduire la taille de batch ou utiliser l'accumulation de gradient
 - **Fix**: Utiliser `--batch-size 8` ou `--accumulate 2` lors de l'entraînement
 
-### 4. Problèmes avec les anchors
+### 3. Problèmes avec les anchors
 - **Cause**: Anchors non adaptés aux petits visages
 - **Solution**: Vérifier la répartition des anchors, notamment pour la tête P2/4
 - **Fix**: Recalculer les anchors avec `--gen-anchors` sur votre dataset
+
+## Importations circulaires – Bonnes pratiques
+
+Pour éviter les importations circulaires dans le projet:
+
+1. **Conception modulaire**:
+   - Chaque module doit être indépendant et avoir des responsabilités clairement définies
+   - Éviter les dépendances mutuelles entre modules
+
+2. **Solutions pour les importations circulaires**:
+   - **Solution 1**: Définir les classes utilitaires comme Conv directement dans chaque module qui en a besoin
+   - **Solution 2**: Déplacer les classes communes dans un module de base qui ne dépend d'aucun autre
+   - **Solution 3**: Utiliser des imports conditionnels (import à l'intérieur des fonctions)
+
+3. **Structure recommandée**:
+   ```
+   models/
+   ├── base.py        # Classes de base comme Conv, sans dépendances
+   ├── common.py      # Modules communs qui peuvent dépendre de base.py
+   ├── gd.py          # Mécanisme GD qui peut dépendre de base.py
+   └── yolo.py        # Module principal qui peut dépendre de tout
+   ```
 
 ## Points de débogage
 
@@ -73,27 +102,19 @@ En cas d'erreur pendant l'entraînement:
 2. Surveiller les valeurs des tenseurs avec `print(torch.isnan(x).any())`
 3. Ajouter le flag `--debug` pour obtenir plus d'informations
 
-## Optimisations futures possibles
+## Prochaines étapes
 
-1. **Optimisation des hyperparamètres**:
-   - Ajuster `small_face_weight` dans `hyp.adyolo.yaml`
-   - Tester différentes valeurs pour `p2_weight`
+1. **Implémentation de Conv dans gd.py**
+   - Copier l'implémentation de Conv depuis models/common.py
+   - Adapter le code pour éviter l'importation circulaire
+   - Tester le modèle pour vérifier que l'erreur est résolue
 
-2. **Améliorations du mécanisme GD**:
-   - Expérimenter avec différentes architectures de TransformerFusion
-   - Implémenter la version complète avec gating network
+2. **Tests et validation**
+   - Tester le modèle avec un petit dataset
+   - Vérifier que toutes les têtes de détection fonctionnent correctement
+   - Comparer les performances avec YOLOv5-Face standard
 
-3. **Optimisations de performance**:
-   - Ajouter du pruning pour réduire la taille du modèle
-   - Implémenter la quantification pour accélérer l'inférence
-
-4. **Adaptation des données**:
-   - Augmenter la proportion de petits visages dans le dataset
-   - Utiliser un sampling stratifié basé sur la taille des visages
-
-## Notes sur la compatibilité avec Google Colab
-
-- Utiliser torch>=2.0.0 pour la compatibilité avec la nouvelle implémentation
-- Surveiller l'utilisation GPU avec `nvidia-smi` pendant l'entraînement
-- Sauvegarder régulièrement les checkpoints en cas de déconnexion
-- Utiliser TensorBoard pour surveiller la convergence des différentes têtes de détection
+3. **Optimisations futures**
+   - Ajuster les hyperparamètres pour améliorer la détection des petits visages
+   - Implémenter des techniques de data augmentation spécifiques
+   - Explorer d'autres variantes du mécanisme GD pour les petits visages

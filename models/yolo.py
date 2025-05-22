@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, ShuffleV2Block, Concat, NMS, autoShape, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer
 from models.experimental import MixConv2d, CrossConv
-from models.gd import FeatureAlignmentModule, InformationFusionModule, InformationInjectionModule, LowStageGD, HighStageGD, AttentionFusion, TransformerFusion
+from models.gd import GDFusion, AttentionFusion, TransformerFusion
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
@@ -414,7 +414,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             continue
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer]:
+        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3, ShuffleV2Block, StemBlock, BlazeBlock, DoubleBlazeBlock, GatherLayer, DistributeLayer, GDFusion]:
             # Gérer le cas spécial où f est une liste (pour GatherLayer et DistributeLayer)
             if isinstance(f, list):
                 # Pour GatherLayer et DistributeLayer, nous prenons le premier élément de la liste
@@ -422,11 +422,15 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 c1 = sum([ch[x + 1] if x != -1 else ch[-1] for x in f])  # Somme des canaux d'entrée
                 c2 = args[0]
                 
-                # Traitement spécial pour GatherLayer et DistributeLayer
+                # Traitement spécial pour GatherLayer, DistributeLayer et GDFusion
                 if m in [GatherLayer, DistributeLayer]:
                     # Ne garder que le premier argument pour ces classes spécifiques
                     # car elles n'ont besoin que du nombre de canaux
                     args = [args[0]]
+                elif m is GDFusion:
+                    # GDFusion a besoin de c1 (liste des canaux d'entrée) et c2 (canaux de sortie)
+                    c1_list = [ch[x + 1] if x != -1 else ch[-1] for x in f]
+                    args = [c1_list, args[0]]  # [c1_list, c2]
             else:
                 c1, c2 = ch[f], args[0]
 
@@ -464,8 +468,9 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif m is nn.Conv2d:
             c1 = ch[f]
             c2 = args[0] # nombre de sorties
-        elif m in [LowStageGD, HighStageGD]:
-            c2 = args[0]  # nombre de canaux de sortie
+        elif m is GDFusion:
+            # GDFusion a été traité ci-dessus
+            pass
         elif m is SmallFaceDetectionHead:
             c1 = ch[f]
             c2 = 18  # 6 classes × 3 anchors (pour landmarks)
