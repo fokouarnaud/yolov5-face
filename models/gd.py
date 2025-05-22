@@ -31,47 +31,40 @@ class GDFusion(nn.Module):
     def __init__(self, c1, c2, fusion_type='attention'):
         super(GDFusion, self).__init__()
         
-        # Gérer c1 comme liste de canaux d'entrée ou entier unique
-        if isinstance(c1, list):
-            # Cas où c1 est une liste de canaux [c1_0, c1_1, ...]
-            self.cv1 = Conv(c1[0], c2, 1, 1)  # Première entrée
-            if len(c1) > 1:
-                self.cv2 = Conv(c1[1], c2, 1, 1)  # Deuxième entrée
-            else:
-                self.cv2 = Conv(c1[0], c2, 1, 1)  # Même entrée copiée
-        else:
-            # Cas où c1 est un entier unique
-            self.cv1 = Conv(c1, c2, 1, 1)
-            self.cv2 = Conv(c1, c2, 1, 1)
-            
+        # Simplifier: c1 et c2 sont des entiers (canaux d'entrée et de sortie)
+        self.c1 = c1 if isinstance(c1, int) else c1[0]
+        self.c2 = c2
+        
+        # Couche de prétraitement
+        self.cv_in = Conv(self.c1, self.c2, 1, 1)
+        
         self.fusion_type = fusion_type
         
         if fusion_type == 'attention':
-            self.fusion = AttentionFusion(c2)
+            self.fusion = AttentionFusion(self.c2)
         elif fusion_type == 'transformer':
-            self.fusion = TransformerFusion(c2)
+            self.fusion = TransformerFusion(self.c2)
         else:
-            # Simple fusion additive avec convolution de raffinement
+            # Simple fusion avec convolution de raffinement
             self.fusion = nn.Sequential(
-                Conv(c2, c2, 3, 1)  # Convolution pour raffinement des caractéristiques
+                Conv(self.c2, self.c2, 3, 1)  # Convolution pour raffinement des caractéristiques
             )
     
     def forward(self, x):
-        # x est attendu comme une liste de deux tenseurs
-        if isinstance(x, (list, tuple)) and len(x) >= 2:
-            x1, x2 = x[0], x[1]
-        else:
-            # Si x n'est pas une liste, utiliser x comme les deux entrées
-            x1, x2 = x, x
+        # Prétraitement de l'entrée
+        if isinstance(x, (list, tuple)):
+            # Si x est une liste, prendre le premier élément
+            x = x[0]
             
-        x1 = self.cv1(x1)
-        x2 = self.cv2(x2)
+        # Appliquer la convolution d'entrée
+        x = self.cv_in(x)
         
         if self.fusion_type in ['attention', 'transformer']:
-            return self.fusion((x1, x2))
+            # Pour attention et transformer, dupliquer l'entrée
+            return self.fusion((x, x))
         else:
-            # Simple fusion additive
-            return self.fusion(x1 + x2)
+            # Simple fusion 
+            return self.fusion(x)
 
 class AttentionFusion(nn.Module):
     """
