@@ -189,36 +189,31 @@ class Model(nn.Module):
         self.detect_layers = [m for m in self.model if isinstance(m, Detect)]
         
         if len(self.detect_layers) > 0:
-            # Si c'est ADYOLOv5 (plusieurs têtes de détection)
-            if len(self.detect_layers) > 1:
-                # Pour ADYOLOv5-Face avec 4 têtes de détection
-                s = 128  # 2x min stride
-                dummy_input = torch.zeros(1, ch, s, s)
-                outputs = self.forward(dummy_input)
-                
-                # Gérer les strides pour chaque tête
-                strides = [4, 8, 16, 32]  # P2, P3, P4, P5 (valeurs fixes pour ADYOLOv5)
-                
-                for i, m in enumerate(self.detect_layers):
-                    if i < len(strides):
-                        m.stride = torch.tensor([strides[i]])
-                        m.anchors /= m.stride.view(-1, 1, 1)
-                        check_anchor_order(m)
-                
-                # Utiliser les strides de la première tête comme strides du modèle
-                self.stride = self.detect_layers[0].stride
-                
+            m = self.detect_layers[0]  # Prendre la première (et normalement unique) couche Detect
+            s = 256  # 2x min stride pour ADYOLOv5 avec P2
+            
+            # Forward pass pour calculer les strides
+            dummy_forward = self.forward(torch.zeros(1, ch, s, s))
+            
+            # Déterminer les strides basés sur le nombre de niveaux de détection
+            if m.nl == 4:  # ADYOLOv5-Face avec P2/P3/P4/P5
+                m.stride = torch.tensor([4., 8., 16., 32.])  # P2/4, P3/8, P4/16, P5/32
+                m.is_adyolo = True
+            elif m.nl == 3:  # YOLOv5 standard avec P3/P4/P5
+                m.stride = torch.tensor([8., 16., 32.])  # P3/8, P4/16, P5/32
+                m.is_adyolo = False
             else:
-                # Pour YOLOv5-Face standard (une seule tête)
-                m = self.detect_layers[0]
-                s = 128  # 2x min stride
-                m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
-                m.anchors /= m.stride.view(-1, 1, 1)
-                check_anchor_order(m)
-                self.stride = m.stride
-                
+                # Calcul automatique des strides
+                m.stride = torch.tensor([s / x.shape[-2] for x in dummy_forward[1] if x is not None][-m.nl:])
+            
+            # Normaliser les anchors par les strides
+            m.anchors /= m.stride.view(-1, 1, 1)
+            check_anchor_order(m)
+            self.stride = m.stride
+            
+            print(f'ADYOLOv5-Face: {m.nl} detection levels with strides {m.stride.tolist()}')
+            
             self._initialize_biases()  # only run once
-            # print('Strides: %s' % m.stride.tolist())
 
         # Init weights, biases
         initialize_weights(self)
@@ -349,23 +344,6 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
     
-    # Fonction de débogage
-    def debug_parse(i, f, n, m, args):
-        print(f"\nLayer {i}: \n  f={f} (type: {type(f)})\n  n={n}\n  m={m}\n  args={args} (type: {type(args)})")
-        
-        if isinstance(f, list):
-            print(f"  f is a list of length {len(f)}")
-            for idx, item in enumerate(f):
-                print(f"    f[{idx}] = {item} (type: {type(item)})")
-        
-        if isinstance(args, list):
-            print(f"  args is a list of length {len(args)}")
-            for idx, arg in enumerate(args):
-                print(f"    args[{idx}] = {arg} (type: {type(arg)})")
-        
-        print("\n")
-
-    
     # PyTorch 2+ compatibility function
     def normalize_args(args, batch_size=1, num_channels=3):
         """Normalizes arguments to be compatible with PyTorch 2.6+"""
@@ -390,13 +368,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 normalized_args.append(normalize_args(arg, batch_size, num_channels))
         
         return normalized_args
-
+    
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
     for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
         try:
-            # Débogage
-            debug_parse(i, f, n, m, args)
-            
             m = eval(m) if isinstance(m, str) else m  # eval strings
             for j, a in enumerate(args):
                 try:
@@ -404,12 +379,8 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                     # Normaliser les arguments pour PyTorch 2+
                     args[j] = normalize_args(args[j])
                 except Exception as e:
-                    print(f"\nError processing args[{j}] = {a} for layer {i}:")
-                    print(f"Exception: {e}")
                     pass
         except Exception as e:
-            print(f"\nError processing layer {i}:")
-            print(f"Exception: {e}")
             # Continuer au lieu de planter complètement
             continue
 
