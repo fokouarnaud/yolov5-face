@@ -1,8 +1,8 @@
 # Hyperparameters for ADYOLOv5-Face training
 # Optimized for better detection of small faces
 
-# Basic
-lr0: 0.01  # initial learning rate (SGD=1E-2, Adam=1E-3)
+# Basic (AJUSTÉ POUR STABILITÉ)
+lr0: 0.005  # initial learning rate (RÉDUIT de 0.01 à 0.005 pour stabilité)
 lrf: 0.2  # final OneCycleLR learning rate (lr0 * lrf)
 momentum: 0.937  # SGD momentum/Adam beta1
 weight_decay: 0.0005  # optimizer weight decay
@@ -31,10 +31,10 @@ min_face_size: 4  # minimum face size to detect (pixels)
 anchor_t: 4.0  # anchor-multiple threshold for assigning anchors to targets
 loss_ota: 1  # use OTA (Optimal Transport Assignment) for target assignment
 
-# Loss coefficients
+# Loss coefficients (CORRIGÉ POUR LANDMARK LOSS EXPLOSIVE)
 box: 0.05  # box loss gain
 cls: 0.5  # cls loss gain
-landmark: 1.0  # landmark loss gain
+landmark: 0.05  # landmark loss gain (RÉDUIT de 1.0 à 0.05 pour éviter explosion)
 cls_pw: 1.0  # cls BCELoss positive_weight
 obj: 1.0  # obj loss gain (scale with pixels)
 obj_pw: 1.0  # obj BCELoss positive_weight
@@ -42,9 +42,9 @@ iou_t: 0.20  # IoU training threshold
 anchor_t: 4.0  # anchor-multiple threshold
 fl_gamma: 0.0  # focal loss gamma (efficientDet default gamma=1.5)
 
-# Face-specific parameters
+# Face-specific parameters (CORRIGÉ POUR STABILITÉ)
 face_iou_thr: 0.5  # IoU threshold for face detection
-face_landmark_alpha: 1.0  # Landmark loss weight factor
+face_landmark_alpha: 0.1  # Landmark loss weight factor (RÉDUIT de 1.0 à 0.1)
 face_confidence_threshold: 0.25  # Confidence threshold for face detection
 
 # P2 detection layer specific
