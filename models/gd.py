@@ -23,6 +23,16 @@ class Conv(nn.Module):
     def forward_fuse(self, x):
         return self.act(self.conv(x))
 
+# Conv spéciale pour les modules d'attention (sans BatchNorm pour éviter les erreurs avec batch_size=1)
+class ConvNoBN(nn.Module):
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, d=1, act=True):
+        super().__init__()
+        self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p, d), groups=g, dilation=d, bias=True)  # bias=True car pas de BN
+        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+
+    def forward(self, x):
+        return self.act(self.conv(x))
+
 class GDFusion(nn.Module):
     """
     Gather-and-Distribute Fusion module for ADYOLOv5-Face
@@ -69,6 +79,7 @@ class GDFusion(nn.Module):
 class AttentionFusion(nn.Module):
     """
     Memory-efficient attention-based feature fusion for Low-Stage GD
+    Fixed BatchNorm issue with small tensors
     """
     def __init__(self, c):
         super(AttentionFusion, self).__init__()
@@ -76,17 +87,17 @@ class AttentionFusion(nn.Module):
         self.cv2 = Conv(c, c, 1)
         self.cv_out = Conv(c, c, 3, 1)
         
-        # Attention efficace en mémoire
+        # Attention efficace en mémoire (utilise ConvNoBN pour éviter BatchNorm avec tenseurs 1x1)
         self.channel_attn = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            Conv(c, c // 4, 1),
+            ConvNoBN(c, c // 4, 1),  # Pas de BatchNorm ici
             nn.SiLU(),
-            Conv(c // 4, c, 1),
+            ConvNoBN(c // 4, c, 1),  # Pas de BatchNorm ici
             nn.Sigmoid()
         )
         
         self.spatial_attn = nn.Sequential(
-            Conv(2, 1, 7, 1, 3),
+            Conv(2, 1, 7, 1, 3),  # Peut utiliser Conv normal car pas de pooling avant
             nn.Sigmoid()
         )
         
@@ -113,6 +124,7 @@ class TransformerFusion(nn.Module):
     """
     Memory-efficient Transformer-like fusion module for High-Stage GD
     Uses depthwise separable convolutions instead of full self-attention
+    Fixed BatchNorm issue with small tensors
     """
     def __init__(self, c, num_heads=4):
         super(TransformerFusion, self).__init__()
@@ -125,12 +137,12 @@ class TransformerFusion(nn.Module):
         self.norm1 = nn.BatchNorm2d(c)
         self.norm2 = nn.BatchNorm2d(c)
         
-        # Channel mixing
+        # Channel mixing (utilise ConvNoBN pour éviter BatchNorm avec tenseurs 1x1)
         self.channel_mixer = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            Conv(c, c // 4, 1),
+            ConvNoBN(c, c // 4, 1),  # Pas de BatchNorm ici
             nn.SiLU(),
-            Conv(c // 4, c, 1),
+            ConvNoBN(c // 4, c, 1),  # Pas de BatchNorm ici
             nn.Sigmoid()
         )
         
