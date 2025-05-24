@@ -13,7 +13,7 @@
 # - Weight decay: 5e-3
 # - Dataset: WiderFace training set
 
-lr0: 0.005                # initial learning rate (ajusté de 0.01 à 0.005 pour stabilité)
+lr0: 0.01                 # initial learning rate (RESTAURÉ: conforme à l'article)
 lrf: 0.00001             # final OneCycleLR learning rate (conforme à l'article: 1e-5)
 momentum: 0.937          # SGD momentum/Adam beta1
 weight_decay: 0.005      # optimizer weight decay (conforme à l'article: 5e-3)
@@ -22,7 +22,7 @@ warmup_momentum: 0.8     # warmup initial momentum
 warmup_bias_lr: 0.1      # warmup initial bias lr
 box: 0.05                # box loss gain
 cls: 0.5                 # cls loss gain
-landmark: 0.05           # landmark loss gain (AJOUTÉ - valeur réduite pour éviter explosion)
+landmark: 0.5            # landmark loss gain (RESTAURÉ: valeur optimale conforme article)
 cls_pw: 1.0              # cls BCELoss positive_weight
 obj: 1.0                 # obj loss gain (scale with pixels)
 obj_pw: 1.0              # obj BCELoss positive_weight

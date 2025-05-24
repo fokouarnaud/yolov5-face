@@ -2,10 +2,10 @@
 # Optimized for better detection of small faces
 
 # Basic (AJUSTÉ POUR STABILITÉ)
-lr0: 0.005  # initial learning rate (RÉDUIT de 0.01 à 0.005 pour stabilité)
+lr0: 0.01   # initial learning rate (CORRIGÉ: restauré à 0.01 conforme article)
 lrf: 0.2  # final OneCycleLR learning rate (lr0 * lrf)
 momentum: 0.937  # SGD momentum/Adam beta1
-weight_decay: 0.0005  # optimizer weight decay
+weight_decay: 0.005   # optimizer weight decay (CORRIGÉ: augmenté pour régularisation)
 warmup_epochs: 3.0  # warmup epochs (fractions ok)
 warmup_momentum: 0.8  # warmup initial momentum
 warmup_bias_lr: 0.1  # warmup initial bias lr
@@ -34,7 +34,7 @@ loss_ota: 1  # use OTA (Optimal Transport Assignment) for target assignment
 # Loss coefficients (CORRIGÉ POUR LANDMARK LOSS EXPLOSIVE)
 box: 0.05  # box loss gain
 cls: 0.5  # cls loss gain
-landmark: 0.05  # landmark loss gain (RÉDUIT de 1.0 à 0.05 pour éviter explosion)
+landmark: 0.2   # landmark loss gain (CORRIGÉ: équilibré pour performance optimale)
 cls_pw: 1.0  # cls BCELoss positive_weight
 obj: 1.0  # obj loss gain (scale with pixels)
 obj_pw: 1.0  # obj BCELoss positive_weight
